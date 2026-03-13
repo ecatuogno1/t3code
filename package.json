@@ -8,10 +8,10 @@
       "scripts"
     ],
     "catalog": {
-      "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@8881a9b",
-      "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/platform-node@8881a9b",
-      "@effect/sql-sqlite-bun": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/sql-sqlite-bun@8881a9b",
-      "@effect/vitest": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/vitest@8881a9b",
+      "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@d53a9a7",
+      "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/platform-node@d53a9a7",
+      "@effect/sql-sqlite-bun": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/sql-sqlite-bun@d53a9a7",
+      "@effect/vitest": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/vitest@d53a9a7",
       "@effect/language-service": "0.75.1",
       "@types/bun": "^1.3.9",
       "@types/node": "^24.10.13",

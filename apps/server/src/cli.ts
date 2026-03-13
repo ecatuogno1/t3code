@@ -1,6 +1,6 @@
 import { NetService } from "@t3tools/shared/Net";
-import { Config, Effect, Option, Path, Schema } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Config, Effect, LogLevel, Option, Path, Schema } from "effect";
+import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import {
   DEFAULT_PORT,
@@ -58,6 +58,7 @@ const logWebSocketEventsFlag = Flag.boolean("log-websocket-events").pipe(
 );
 
 const EnvServerConfig = Config.all({
+  logLevel: Config.logLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   mode: Config.string("T3CODE_MODE").pipe(
     Config.option,
     Config.map(
@@ -107,7 +108,10 @@ interface CliServerFlags {
 const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
   Option.getOrElse(Option.filter(flag, Boolean), () => envValue);
 
-export const resolveServerConfig = (flags: CliServerFlags) =>
+export const resolveServerConfig = (
+  flags: CliServerFlags,
+  cliLogLevel: Option.Option<LogLevel.LogLevel>,
+) =>
   Effect.gen(function* () {
     const { findAvailablePort } = yield* NetService;
     const env = yield* EnvServerConfig;
@@ -145,8 +149,10 @@ export const resolveServerConfig = (flags: CliServerFlags) =>
       Option.getOrUndefined(flags.host) ??
       env.host ??
       (mode === "desktop" ? "127.0.0.1" : undefined);
+    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
 
     const config: ServerConfigShape = {
+      logLevel,
       mode,
       port,
       cwd: process.cwd(),
@@ -179,9 +185,11 @@ const commandFlags = {
 const rootCommand = Command.make("t3", commandFlags).pipe(
   Command.withDescription("Run the T3 Code server."),
   Command.withHandler((flags) =>
-    Effect.flatMap(resolveServerConfig(flags), (config) =>
-      runServer.pipe(Effect.provideService(ServerConfig, config)),
-    ),
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveServerConfig(flags, logLevel);
+      return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
+    }),
   ),
 );
 

@@ -61,6 +61,7 @@ import {
 } from "./terminal";
 import {
   ServerConfigStreamEvent,
+  ServerLifecycleStreamEvent,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -70,7 +71,6 @@ import {
   SubscribeServerLifecycleInput,
   SubscribeTerminalEventsInput,
   WS_METHODS,
-  WsWelcomePayload,
 } from "./ws";
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -250,7 +250,7 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
 
 export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecycle, {
   payload: SubscribeServerLifecycleInput,
-  success: WsWelcomePayload,
+  success: ServerLifecycleStreamEvent,
   stream: true,
 });
 
@@ -276,8 +276,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
+  WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,
+  WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,

@@ -6,6 +6,7 @@ import {
   GitCommandError,
   KeybindingRule,
   OpenError,
+  type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -43,6 +44,8 @@ import {
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import { ProviderHealth, type ProviderHealthShape } from "./provider/Services/ProviderHealth.ts";
+import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
+import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
@@ -101,6 +104,8 @@ const buildAppUnderTest = (options?: {
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
+    serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -109,6 +114,7 @@ const buildAppUnderTest = (options?: {
     const tempStateDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-test-" });
     const stateDir = options?.config?.stateDir ?? tempStateDir;
     const layerConfig = Layer.succeed(ServerConfig, {
+      logLevel: "Info",
       mode: "web",
       port: 0,
       host: "127.0.0.1",
@@ -122,7 +128,7 @@ const buildAppUnderTest = (options?: {
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
       ...options?.config,
-    });
+    } satisfies ServerConfigShape);
 
     const appLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -192,6 +198,22 @@ const buildAppUnderTest = (options?: {
               diff: "",
             }),
           ...options?.layers?.checkpointDiffQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ServerLifecycleEvents)({
+          publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
+          snapshot: Effect.succeed({ sequence: 0, events: [] }),
+          stream: Stream.empty,
+          ...options?.layers?.serverLifecycleEvents,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ServerRuntimeStartup)({
+          awaitCommandReady: Effect.void,
+          markHttpListening: Effect.void,
+          enqueueCommand: (effect) => effect,
+          ...options?.layers?.serverRuntimeStartup,
         }),
       ),
       Layer.provide(layerConfig),
@@ -340,6 +362,70 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("rejects websocket rpc handshake when auth token is missing", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-required-" });
+      yield* fs.writeFileString(
+        path.join(workspaceDir, "needle-file.ts"),
+        "export const needle = 1;",
+      );
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsSearchEntries]({
+            cwd: workspaceDir,
+            query: "needle",
+            limit: 10,
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assertInclude(String(result.failure), "SocketOpenError");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("accepts websocket rpc handshake when auth token is provided", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-ok-" });
+      yield* fs.writeFileString(
+        path.join(workspaceDir, "needle-file.ts"),
+        "export const needle = 1;",
+      );
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws?token=secret-token");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsSearchEntries]({
+            cwd: workspaceDir,
+            query: "needle",
+            limit: 10,
+          }),
+        ),
+      );
+
+      assert.isAtLeast(response.entries.length, 1);
+      assert.equal(response.truncated, false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc subscribeServerConfig streams snapshot then update", () =>
     Effect.gen(function* () {
       const providers = [] as const;
@@ -373,11 +459,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const [first, second] = Array.from(events);
       assert.equal(first?.type, "snapshot");
       if (first?.type === "snapshot") {
+        assert.equal(first.version, 1);
         assert.deepEqual(first.config.keybindings, []);
         assert.deepEqual(first.config.issues, []);
         assert.deepEqual(first.config.providers, providers);
       }
       assert.deepEqual(second, {
+        version: 1,
         type: "keybindingsUpdated",
         payload: { issues: [] },
       });
@@ -428,10 +516,60 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const [first, second] = Array.from(events);
       assert.equal(first?.type, "snapshot");
       assert.deepEqual(second, {
+        version: 1,
         type: "providerStatuses",
         payload: { providers },
       });
     }).pipe(Effect.provide(Layer.mergeAll(NodeHttpServer.layerTest, TestClock.layer()))),
+  );
+
+  it.effect(
+    "routes websocket rpc subscribeServerLifecycle replays snapshot and streams updates",
+    () =>
+      Effect.gen(function* () {
+        const lifecycleEvents = [
+          {
+            version: 1 as const,
+            sequence: 1,
+            type: "welcome" as const,
+            payload: {
+              cwd: "/tmp/project",
+              projectName: "project",
+            },
+          },
+        ] as const;
+        const liveEvents = Stream.make({
+          version: 1 as const,
+          sequence: 2,
+          type: "ready" as const,
+          payload: { at: new Date().toISOString() },
+        });
+
+        yield* buildAppUnderTest({
+          layers: {
+            serverLifecycleEvents: {
+              snapshot: Effect.succeed({
+                sequence: 1,
+                events: lifecycleEvents,
+              }),
+              stream: liveEvents,
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeServerLifecycle]({}).pipe(Stream.take(2), Stream.runCollect),
+          ),
+        );
+
+        const [first, second] = Array.from(events);
+        assert.equal(first?.type, "welcome");
+        assert.equal(first?.sequence, 1);
+        assert.equal(second?.type, "ready");
+        assert.equal(second?.sequence, 2);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc projects.searchEntries", () =>
@@ -914,6 +1052,66 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       assert.deepEqual(replayResult, []);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "routes websocket rpc subscribeOrchestrationDomainEvents with replay/live overlap resilience",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        let replayCursor: number | null = null;
+        const makeEvent = (sequence: number): OrchestrationEvent =>
+          ({
+            sequence,
+            eventId: `event-${sequence}`,
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "thread.reverted",
+            payload: {
+              threadId,
+              turnCount: sequence,
+            },
+          }) as OrchestrationEvent;
+
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              getReadModel: () =>
+                Effect.succeed({
+                  ...makeDefaultOrchestrationReadModel(),
+                  snapshotSequence: 1,
+                }),
+              readEvents: (fromSequenceExclusive) => {
+                replayCursor = fromSequenceExclusive;
+                return Stream.make(makeEvent(2), makeEvent(3));
+              },
+              streamDomainEvents: Stream.make(makeEvent(3), makeEvent(4)),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeOrchestrationDomainEvents]({}).pipe(
+              Stream.take(3),
+              Stream.runCollect,
+            ),
+          ),
+        );
+
+        assert.equal(replayCursor, 1);
+        assert.deepEqual(
+          Array.from(events).map((event) => event.sequence),
+          [2, 3, 4],
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc orchestration.getSnapshot errors", () =>

@@ -1,5 +1,5 @@
 import Mime from "@effect/platform-node/Mime";
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -24,12 +24,12 @@ export const attachmentsRouteLayer = HttpRouter.add(
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const url = HttpServerRequest.toURL(request);
-    if (!url) {
+    if (Option.isNone(url)) {
       return HttpServerResponse.text("Bad Request", { status: 400 });
     }
 
     const config = yield* ServerConfig;
-    const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
+    const rawRelativePath = url.value.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
     const normalizedRelativePath = normalizeAttachmentRelativePath(rawRelativePath);
     if (!normalizedRelativePath) {
       return HttpServerResponse.text("Invalid attachment path", { status: 400 });
@@ -84,7 +84,7 @@ export const staticAndDevRouteLayer = HttpRouter.add(
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const url = HttpServerRequest.toURL(request);
-    if (!url) {
+    if (Option.isNone(url)) {
       return HttpServerResponse.text("Bad Request", { status: 400 });
     }
 
@@ -102,7 +102,7 @@ export const staticAndDevRouteLayer = HttpRouter.add(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const staticRoot = path.resolve(config.staticDir);
-    const staticRequestPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const staticRequestPath = url.value.pathname === "/" ? "/index.html" : url.value.pathname;
     const rawStaticRelativePath = staticRequestPath.replace(/^[/\\]+/, "");
     const hasRawLeadingParentSegment = rawStaticRelativePath.startsWith("..");
     const staticRelativePath = path.normalize(rawStaticRelativePath).replace(/^[/\\]+/, "");

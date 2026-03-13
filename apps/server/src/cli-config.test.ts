@@ -12,22 +12,26 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const stateDir = join(os.tmpdir(), "t3-cli-config-env-state");
-      const resolved = yield* resolveServerConfig({
-        mode: Option.none(),
-        port: Option.none(),
-        host: Option.none(),
-        stateDir: Option.none(),
-        devUrl: Option.none(),
-        noBrowser: Option.none(),
-        authToken: Option.none(),
-        autoBootstrapProjectFromCwd: Option.none(),
-        logWebSocketEvents: Option.none(),
-      }).pipe(
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.none(),
+          port: Option.none(),
+          host: Option.none(),
+          stateDir: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
         Effect.provide(
           Layer.mergeAll(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
+                  T3CODE_LOG_LEVEL: "Warn",
                   T3CODE_MODE: "desktop",
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
@@ -46,6 +50,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        logLevel: "Warn",
         mode: "desktop",
         port: 4001,
         cwd: process.cwd(),
@@ -66,22 +71,26 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const stateDir = join(os.tmpdir(), "t3-cli-config-flags-state");
-      const resolved = yield* resolveServerConfig({
-        mode: Option.some("web"),
-        port: Option.some(8788),
-        host: Option.some("127.0.0.1"),
-        stateDir: Option.some(stateDir),
-        devUrl: Option.some(new URL("http://127.0.0.1:4173")),
-        noBrowser: Option.some(true),
-        authToken: Option.some("flag-token"),
-        autoBootstrapProjectFromCwd: Option.some(true),
-        logWebSocketEvents: Option.some(true),
-      }).pipe(
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(8788),
+          host: Option.some("127.0.0.1"),
+          stateDir: Option.some(stateDir),
+          devUrl: Option.some(new URL("http://127.0.0.1:4173")),
+          noBrowser: Option.some(true),
+          authToken: Option.some("flag-token"),
+          autoBootstrapProjectFromCwd: Option.some(true),
+          logWebSocketEvents: Option.some(true),
+        },
+        Option.some("Debug"),
+      ).pipe(
         Effect.provide(
           Layer.mergeAll(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
+                  T3CODE_LOG_LEVEL: "Warn",
                   T3CODE_MODE: "desktop",
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
@@ -100,6 +109,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        logLevel: "Debug",
         mode: "web",
         port: 8788,
         cwd: process.cwd(),

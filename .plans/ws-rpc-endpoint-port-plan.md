@@ -25,6 +25,60 @@ Incrementally migrate WebSocket request handling from `apps/server/src/wsServer.
    - Run `bun run test` (targeted), then `bun fmt`, `bun lint`, `bun typecheck`.
    - Only proceed to next endpoint when checks are green.
 
+## Runtime Parity Priorities
+
+Use this as the execution order for the remainder of the migration.
+
+### P0: Full-stack flow working (unblock app runtime)
+
+- [ ] Wire startup side effects into live runtime composition.
+  - [ ] Ensure `serverRuntimeStartupLayer` is provided by `makeServerLayer`.
+  - [ ] Verify startup runs keybindings sync/start, orchestration reactor startup, lifecycle publish, startup heartbeat, optional browser open.
+- [x] Add WebSocket auth parity on `/ws` route.
+  - [x] Enforce token gate equivalent to old `wsServer` behavior when `authToken` is configured.
+  - [x] Add integration tests for authorized and unauthorized websocket connections.
+- [ ] Migrate web app critical live transport paths to RPC streams.
+  - [ ] `subscribeServerLifecycle`
+  - [ ] `subscribeOrchestrationDomainEvents`
+  - [ ] `subscribeTerminalEvents`
+  - [ ] `subscribeServerConfig`
+- [ ] Implement reconnect + resubscribe MVP in web transport.
+  - [ ] Recover stream subscriptions after websocket reconnect.
+  - [ ] Avoid duplicate active subscriptions after reconnect.
+- [ ] Add one end-to-end smoke proving boot-to-interaction.
+  - [ ] Server starts and lifecycle welcome/ready is observed.
+  - [ ] Client can dispatch orchestration command and receive domain events.
+  - [ ] Terminal write + terminal stream updates are observed.
+
+### P1: Behavior parity and reliability semantics
+
+- [ ] Remove remaining required runtime behavior from legacy `wsServer.ts`.
+- [ ] Readiness semantics parity.
+  - [ ] Define and enforce when runtime is considered "ready".
+  - [ ] Align lifecycle event timing with readiness expectations.
+- [ ] Stream behavior parity on current subscriptions.
+  - [ ] Confirm `subscribeServerConfig` timing and event shape parity for UI expectations.
+  - [ ] Confirm multi-client terminal stream behavior under concurrent writes.
+- [ ] Delivery semantics documentation per stream.
+  - [ ] Ordering guarantees.
+  - [ ] Replay/catch-up behavior.
+  - [ ] At-most-once/best-effort contract.
+
+### P2: Cleanup + hardening
+
+- [ ] Backpressure policy per stream.
+  - [ ] Define buffer caps.
+  - [ ] Define drop/disconnect policy.
+- [ ] Observability for stream reliability.
+  - [ ] Metrics/logging for dropped deliveries and subscriber failures.
+  - [ ] Reconnect churn visibility.
+- [ ] Security hardening parity.
+  - [ ] Per-stream permission checks.
+- [ ] Delete deprecated legacy transport artifacts once parity is proven.
+  - [ ] legacy `WS_CHANNELS` usage in active web transport.
+  - [ ] old ws envelope request/response codecs where obsolete.
+  - [ ] dead helpers/services only used by legacy transport path.
+
 ## Ordered Endpoint Checklist
 
 Legend: `[x]` done, `[ ]` not started.
@@ -74,12 +128,12 @@ Legend: `[x]` done, `[ ]` not started.
 ### Phase 6: Streaming subscriptions via RPC (replace push-channel bridge)
 
 - [x] Define streaming RPC contracts for all server-driven event surfaces (reference pattern: `subscribeTodos`):
-  - [ ] `subscribeOrchestrationDomainEvents`
+  - [x] `subscribeOrchestrationDomainEvents`
   - [x] `subscribeTerminalEvents`
   - [x] `subscribeServerConfig` (snapshot + keybindings updates + provider status heartbeat)
-  - [ ] `subscribeServerLifecycle` (welcome/readiness/bootstrap updates)
+  - [x] `subscribeServerLifecycle` (welcome/readiness/bootstrap updates)
 - [ ] Add stream payload schemas in `packages/contracts` with narrow tagged unions where needed.
-  - [ ] Include explicit event versioning strategy (`version` or schema evolution note).
+  - [x] Include explicit event versioning strategy (`version` or schema evolution note).
   - [ ] Ensure payload shape parity with existing `WS_CHANNELS` semantics.
 - [ ] Implement streaming handlers in `apps/server/src/ws.ts` using `Effect.Stream`.
   - [x] Wire first stream (`subscribeTerminalEvents`) to the correct source service/event bus.
@@ -111,15 +165,15 @@ Legend: `[x]` done, `[ ]` not started.
 ### Phase 7: Server startup/runtime side effects (move lifecycle out of legacy wsServer)
 
 - [ ] Move startup orchestration from `wsServer.ts` into layer-based runtime composition.
-  - [ ] keybindings startup + default sync behavior
-  - [ ] orchestration reactor startup
+  - [x] keybindings startup + default sync behavior
+  - [x] orchestration reactor startup
   - [ ] terminal stream subscription lifecycle
   - [ ] orchestration stream subscription lifecycle
 - [ ] Move startup UX/ops side effects:
-  - [ ] open-in-browser behavior
-  - [ ] startup heartbeat analytics
+  - [x] open-in-browser behavior
+  - [x] startup heartbeat analytics
   - [ ] startup logs payload parity
-  - [ ] optional auto-bootstrap project/thread from cwd
+  - [x] optional auto-bootstrap project/thread from cwd
 - [ ] Preserve readiness and failure semantics:
   - [ ] readiness gates for required subsystems
   - [ ] startup failure behavior and error messages
