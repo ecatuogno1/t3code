@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",
+    "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",

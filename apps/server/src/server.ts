@@ -1,13 +1,14 @@
 import * as Net from "node:net";
 import * as Http from "node:http";
 
-import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
 import { Effect, Layer, Path } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
-import { ServerConfig } from "./config";
+import { ServerConfig, ServerConfigShape } from "./config";
 import { attachmentsRouteLayer, healthRouteLayer, staticAndDevRouteLayer } from "./http";
 import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
@@ -133,6 +134,20 @@ const runtimeServicesLayer = Layer.empty.pipe(
   Layer.provideMerge(ServerLifecycleEventsLive),
 );
 
+const HttpServerLive =
+  typeof Bun !== "undefined"
+    ? (listenOptions: ServerConfigShape) =>
+        BunHttpServer.layer({
+          port: listenOptions.port,
+          ...(listenOptions.host ? { hostname: listenOptions.host } : {}),
+        })
+    : (listenOptions: ServerConfigShape) =>
+        NodeHttpServer.layer(Http.createServer, {
+          host: listenOptions.host,
+          port: listenOptions.port,
+        });
+const ServicesLive = typeof Bun !== "undefined" ? BunServices.layer : NodeServices.layer;
+
 export const makeRoutesLayer = Layer.mergeAll(
   healthRouteLayer,
   attachmentsRouteLayer,
@@ -143,10 +158,9 @@ export const makeRoutesLayer = Layer.mergeAll(
 export const makeServerLayer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
-    const listenOptions: Net.ListenOptions = config.host
-      ? { host: config.host, port: config.port }
-      : { port: config.port };
-    yield* Effect.sync(fixPath);
+
+    fixPath();
+
     const httpListeningLayer = Layer.effectDiscard(
       Effect.gen(function* () {
         yield* HttpServer.HttpServer;
@@ -164,10 +178,10 @@ export const makeServerLayer = Layer.unwrap(
 
     return serverApplicationLayer.pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(NodeHttpClient.layerUndici),
-      Layer.provideMerge(NodeServices.layer),
-      Layer.provideMerge(NodeHttpServer.layer(Http.createServer, listenOptions)),
-      Layer.provide(ServerLoggerLive.pipe(Layer.provide(NodeServices.layer))),
+      Layer.provideMerge(HttpServerLive(config)),
+      Layer.provide(ServerLoggerLive),
+      Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provideMerge(ServicesLive),
     );
   }),
 );
