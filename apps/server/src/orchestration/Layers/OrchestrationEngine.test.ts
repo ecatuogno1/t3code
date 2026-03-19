@@ -85,7 +85,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -140,7 +139,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -203,7 +201,6 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
-          groupId: null,
           createdAt,
         });
         yield* engine.dispatch({
@@ -249,7 +246,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -359,7 +355,6 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
-          groupId: null,
           createdAt,
         }),
       ),
@@ -377,7 +372,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -443,7 +437,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -579,7 +572,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -660,7 +652,6 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt,
       }),
     );
@@ -678,7 +669,6 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
-          groupId: null,
           createdAt,
         }),
       ),

@@ -87,6 +87,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  threadGroups: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {
@@ -151,7 +152,6 @@ describe("commandInvariants", () => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
-          groupId: null,
           createdAt: now,
         },
         threadId: ThreadId.makeUnsafe("thread-3"),
@@ -173,7 +173,6 @@ describe("commandInvariants", () => {
             runtimeMode: "full-access",
             branch: null,
             worktreePath: null,
-            groupId: null,
             createdAt: now,
           },
           threadId: ThreadId.makeUnsafe("thread-1"),

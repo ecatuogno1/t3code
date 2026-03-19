@@ -48,6 +48,7 @@ function makeSnapshot(input: {
         runtimeMode: "full-access",
         branch: null,
         worktreePath: input.worktreePath,
+        groupId: null,
         latestTurn: {
           turnId: TurnId.makeUnsafe("turn-1"),
           state: "completed",
@@ -76,6 +77,7 @@ function makeSnapshot(input: {
         session: null,
       },
     ],
+    threadGroups: [],
   };
 }
 
@@ -96,7 +98,6 @@ describe("CheckpointDiffQueryLive", () => {
       threadId,
       workspaceRoot: "/tmp/workspace",
       worktreePath: null,
-      groupId: null,
       checkpointTurnCount: 1,
       checkpointRef: toCheckpointRef,
     });

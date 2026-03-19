@@ -244,7 +244,6 @@ describe("ProviderCommandReactor", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
-        groupId: null,
         createdAt: now,
       }),
     );
