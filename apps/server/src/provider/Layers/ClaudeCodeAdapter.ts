@@ -280,7 +280,7 @@ const makeClaudeCodeAdapter = () =>
           if (session.model !== undefined) entry.model = session.model;
           return entry as {
             provider: "claudeCode";
-            status: string;
+            status: "connecting" | "ready" | "running" | "error" | "closed";
             runtimeMode: "full-access";
             threadId: ThreadId;
             createdAt: string;
