@@ -158,6 +158,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    threadGroups: [],
     updatedAt: nowIso,
   };
 }
@@ -620,6 +621,68 @@ export function projectEvent(
           };
         }),
       );
+
+    case "thread-group.created": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: [
+          ...(nextBase.threadGroups ?? []),
+          {
+            id: payload.groupId,
+            projectId: payload.projectId,
+            title: payload.title,
+            color: payload.color,
+            orderIndex: payload.orderIndex,
+            isCollapsed: false,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+          },
+        ],
+      });
+    }
+
+    case "thread-group.updated": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: (nextBase.threadGroups ?? []).map((group) =>
+          group.id === payload.groupId
+            ? {
+                ...group,
+                ...(payload.title !== undefined ? { title: payload.title } : {}),
+                ...(payload.color !== undefined ? { color: payload.color } : {}),
+                updatedAt: payload.updatedAt,
+              }
+            : group,
+        ),
+      });
+    }
+
+    case "thread-group.deleted": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: (nextBase.threadGroups ?? []).map((group) =>
+          group.id === payload.groupId ? { ...group, deletedAt: payload.deletedAt } : group,
+        ),
+        threads: nextBase.threads.map((thread) =>
+          thread.groupId === payload.groupId ? { ...thread, groupId: null } : thread,
+        ),
+      });
+    }
+
+    case "thread.group-set": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threads: updateThread(nextBase.threads, payload.threadId, {
+          groupId: payload.groupId,
+          updatedAt: payload.updatedAt,
+        }),
+      });
+    }
 
     default:
       return Effect.succeed(nextBase);

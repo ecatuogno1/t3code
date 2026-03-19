@@ -37,6 +37,8 @@ import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/La
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
+import { ProjectionThreadGroupRepository } from "../../persistence/Services/ProjectionThreadGroups.ts";
+import { ProjectionThreadGroupRepositoryLive } from "../../persistence/Layers/ProjectionThreadGroups.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -59,6 +61,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  threadGroups: "projection.thread-groups",
 } as const;
 
 type ProjectorName =
@@ -349,6 +352,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+  const projectionThreadGroupRepository = yield* ProjectionThreadGroupRepository;
 
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -425,6 +429,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            groupId: null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -1095,6 +1100,67 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       }
     });
 
+  const applyThreadGroupsProjection: ProjectorDefinition["apply"] = (event) =>
+    Effect.gen(function* () {
+      switch (event.type) {
+        case "thread-group.created": {
+          const payload = event.payload;
+          yield* projectionThreadGroupRepository.upsert({
+            groupId: payload.groupId,
+            projectId: payload.projectId,
+            title: payload.title,
+            color: payload.color,
+            orderIndex: payload.orderIndex,
+            isCollapsed: false,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+          });
+          return;
+        }
+        case "thread-group.updated": {
+          const payload = event.payload;
+          const existing = yield* projectionThreadGroupRepository.getById({
+            groupId: payload.groupId,
+          });
+          if (Option.isNone(existing)) return;
+          yield* projectionThreadGroupRepository.upsert({
+            ...existing.value,
+            ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.color !== undefined ? { color: payload.color } : {}),
+            updatedAt: payload.updatedAt,
+          });
+          return;
+        }
+        case "thread-group.deleted": {
+          const payload = event.payload;
+          yield* projectionThreadGroupRepository.deleteById({
+            groupId: payload.groupId,
+          });
+          yield* sql`
+            UPDATE projection_threads SET group_id = NULL
+            WHERE group_id = ${payload.groupId}
+          `.pipe(Effect.mapError(toPersistenceSqlError("threadGroups.delete:unsetGroupId")));
+          return;
+        }
+        case "thread.group-set": {
+          const payload = event.payload;
+          const existing = yield* projectionThreadRepository.getById({
+            threadId: payload.threadId,
+          });
+          if (Option.isNone(existing)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existing.value,
+            groupId: payload.groupId,
+            updatedAt: payload.updatedAt,
+          });
+          return;
+        }
+        default:
+          return;
+      }
+    });
+
   const projectors: ReadonlyArray<ProjectorDefinition> = [
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -1131,6 +1197,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.threads,
       apply: applyThreadsProjection,
+    },
+    {
+      name: ORCHESTRATION_PROJECTOR_NAMES.threadGroups,
+      apply: applyThreadGroupsProjection,
     },
   ];
 
@@ -1233,4 +1303,5 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
+  Layer.provideMerge(ProjectionThreadGroupRepositoryLive),
 );

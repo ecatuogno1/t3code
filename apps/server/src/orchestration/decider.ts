@@ -631,6 +631,95 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread-group.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const existingGroups = readModel.threadGroups?.filter(
+        (g) => g.projectId === command.projectId && !g.deletedAt,
+      );
+      const orderIndex = existingGroups ? existingGroups.length : 0;
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.created",
+        payload: {
+          groupId: command.groupId,
+          projectId: command.projectId,
+          title: command.title,
+          color: command.color,
+          orderIndex,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread-group.update": {
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.updated",
+        payload: {
+          groupId: command.groupId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.color !== undefined ? { color: command.color } : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread-group.delete": {
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.deleted",
+        payload: {
+          groupId: command.groupId,
+          deletedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.group.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.group-set",
+        payload: {
+          threadId: command.threadId,
+          groupId: command.groupId,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };

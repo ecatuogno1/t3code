@@ -81,6 +81,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -110,6 +111,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    threadGroups: [],
     updatedAt: NOW_ISO,
   };
 }

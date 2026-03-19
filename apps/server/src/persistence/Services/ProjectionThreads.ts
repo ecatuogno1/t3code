@@ -11,6 +11,7 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadGroupId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -28,6 +29,7 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  groupId: Schema.NullOr(ThreadGroupId).pipe(Schema.withDecodingDefault(() => null)),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

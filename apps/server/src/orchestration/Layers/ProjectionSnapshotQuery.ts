@@ -517,6 +517,40 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             });
           }
 
+          // Query thread groups separately
+          let threadGroupRows: ReadonlyArray<Record<string, unknown>> = [];
+          try {
+            threadGroupRows = yield* sql`
+              SELECT
+                group_id AS "groupId",
+                project_id AS "projectId",
+                title,
+                color,
+                order_index AS "orderIndex",
+                CASE WHEN is_collapsed = 1 THEN 1 ELSE 0 END AS "isCollapsed",
+                created_at AS "createdAt",
+                updated_at AS "updatedAt",
+                deleted_at AS "deletedAt"
+              FROM projection_thread_groups
+              WHERE deleted_at IS NULL
+              ORDER BY order_index ASC, created_at ASC
+            `;
+          } catch {
+            // Table may not exist yet if migration hasn't run
+          }
+
+          const threadGroups = threadGroupRows.map((row) => ({
+            id: row.groupId as string,
+            projectId: row.projectId as string,
+            title: row.title as string,
+            color: row.color as string,
+            orderIndex: (row.orderIndex as number) ?? 0,
+            isCollapsed: Boolean(row.isCollapsed),
+            createdAt: row.createdAt as string,
+            updatedAt: row.updatedAt as string,
+            deletedAt: (row.deletedAt as string) ?? null,
+          }));
+
           const projects: Array<OrchestrationProject> = projectRows.map((row) => ({
             id: row.projectId,
             title: row.title,
@@ -537,6 +571,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            groupId: row.groupId ?? null,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
@@ -552,6 +587,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
+            threadGroups,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

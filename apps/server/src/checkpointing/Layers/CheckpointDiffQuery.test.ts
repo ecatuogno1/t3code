@@ -96,6 +96,7 @@ describe("CheckpointDiffQueryLive", () => {
       threadId,
       workspaceRoot: "/tmp/workspace",
       worktreePath: null,
+      groupId: null,
       checkpointTurnCount: 1,
       checkpointRef: toCheckpointRef,
     });
@@ -175,6 +176,7 @@ describe("CheckpointDiffQueryLive", () => {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              threadGroups: [],
               updatedAt: "2026-01-01T00:00:00.000Z",
             } satisfies OrchestrationReadModel),
         }),

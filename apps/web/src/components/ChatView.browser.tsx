@@ -237,6 +237,7 @@ function createSnapshotForTargetUser(options: {
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -256,6 +257,7 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    threadGroups: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -291,6 +293,7 @@ function addThreadToSnapshot(
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
