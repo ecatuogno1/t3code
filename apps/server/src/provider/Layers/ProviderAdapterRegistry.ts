@@ -16,6 +16,7 @@ import {
   type ProviderAdapterRegistryShape,
 } from "../Services/ProviderAdapterRegistry.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import { ClaudeCodeAdapter } from "../Services/ClaudeCodeAdapter.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
   readonly adapters?: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>;
@@ -23,7 +24,10 @@ export interface ProviderAdapterRegistryLiveOptions {
 
 const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOptions) =>
   Effect.gen(function* () {
-    const adapters = options?.adapters !== undefined ? options.adapters : [yield* CodexAdapter];
+    const codexAdapter = yield* CodexAdapter;
+    const claudeCodeAdapter = yield* ClaudeCodeAdapter;
+    const adapters =
+      options?.adapters !== undefined ? options.adapters : [codexAdapter, claudeCodeAdapter];
     const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
     const getByProvider: ProviderAdapterRegistryShape["getByProvider"] = (provider) => {
