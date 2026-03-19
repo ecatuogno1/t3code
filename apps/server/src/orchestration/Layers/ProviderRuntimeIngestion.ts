@@ -255,7 +255,7 @@ function runtimeEventToActivities(
           kind: "runtime.error",
           summary: "Runtime error",
           payload: {
-            message: truncateDetail(message),
+            message: truncateDetail(message, 512),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

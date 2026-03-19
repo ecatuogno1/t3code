@@ -14,7 +14,7 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
     <div className="pt-3 mx-auto max-w-3xl">
       <Alert variant="error">
         <CircleAlertIcon />
-        <AlertDescription className="line-clamp-3" title={error}>
+        <AlertDescription className="line-clamp-6" title={error}>
           {error}
         </AlertDescription>
         {onDismiss && (
