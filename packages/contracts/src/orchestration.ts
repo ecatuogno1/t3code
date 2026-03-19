@@ -9,6 +9,7 @@ import {
   MessageId,
   NonNegativeInt,
   ProjectId,
+  ProjectMemoryId,
   ProviderItemId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -140,6 +141,22 @@ export const OrchestrationProject = Schema.Struct({
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
+
+export const ProjectMemoryKind = Schema.Literals(["note", "context", "reference", "feedback"]);
+export type ProjectMemoryKind = typeof ProjectMemoryKind.Type;
+
+export const OrchestrationProjectMemory = Schema.Struct({
+  id: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  deletedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationProjectMemory = typeof OrchestrationProjectMemory.Type;
 
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
@@ -284,6 +301,9 @@ export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  projectMemories: Schema.Array(OrchestrationProjectMemory).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -447,6 +467,34 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ProjectMemoryCreateCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.create"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const ProjectMemoryUpdateCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.update"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  content: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(ProjectMemoryKind),
+  tags: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+
+const ProjectMemoryDeleteCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.delete"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -462,6 +510,9 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ProjectMemoryCreateCommand,
+  ProjectMemoryUpdateCommand,
+  ProjectMemoryDeleteCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -481,6 +532,9 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ProjectMemoryCreateCommand,
+  ProjectMemoryUpdateCommand,
+  ProjectMemoryDeleteCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -587,10 +641,13 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "project-memory.created",
+  "project-memory.updated",
+  "project-memory.deleted",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread", "project-memory"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -751,6 +808,31 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ProjectMemoryCreatedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ProjectMemoryUpdatedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  content: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(ProjectMemoryKind),
+  tags: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  updatedAt: IsoDateTime,
+});
+
+export const ProjectMemoryDeletedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  deletedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -764,7 +846,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, ProjectMemoryId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -872,6 +954,21 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.created"),
+    payload: ProjectMemoryCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.updated"),
+    payload: ProjectMemoryUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.deleted"),
+    payload: ProjectMemoryDeletedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

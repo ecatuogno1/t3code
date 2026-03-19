@@ -85,6 +85,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  projectMemories: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {

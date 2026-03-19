@@ -2,6 +2,7 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   ProjectId,
+  ProjectMemoryId,
   ThreadId,
 } from "@t3tools/contracts";
 import { OrchestrationCommand } from "@t3tools/contracts";
@@ -30,8 +31,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: "project" | "thread" | "project-memory";
+  readonly aggregateId: ProjectId | ThreadId | ProjectMemoryId;
 } {
   switch (command.type) {
     case "project.create":
@@ -40,6 +41,17 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
+      };
+    case "project-memory.create":
+      return {
+        aggregateKind: "project-memory",
+        aggregateId: command.memoryId,
+      };
+    case "project-memory.update":
+    case "project-memory.delete":
+      return {
+        aggregateKind: "project-memory",
+        aggregateId: command.memoryId,
       };
     default:
       return {

@@ -256,6 +256,7 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    projectMemories: [],
     updatedAt: NOW_ISO,
   };
 }

@@ -90,6 +90,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+    projectMemories: [],
   };
 }
 
@@ -251,6 +252,7 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      projectMemories: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);

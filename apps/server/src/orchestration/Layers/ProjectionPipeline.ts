@@ -28,6 +28,7 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionProjectMemoryRepository } from "../../persistence/Services/ProjectionProjectMemories.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -37,6 +38,7 @@ import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/La
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
+import { ProjectionProjectMemoryRepositoryLive } from "../../persistence/Layers/ProjectionProjectMemories.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -59,6 +61,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  projectMemories: "projection.project-memories",
 } as const;
 
 type ProjectorName =
@@ -349,6 +352,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+  const projectionProjectMemoryRepository = yield* ProjectionProjectMemoryRepository;
 
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -1095,6 +1099,64 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       }
     });
 
+  const applyProjectMemoriesProjection: ProjectorDefinition["apply"] = (
+    event,
+    _attachmentSideEffects,
+  ) =>
+    Effect.gen(function* () {
+      switch (event.type) {
+        case "project-memory.created":
+          yield* projectionProjectMemoryRepository.upsert({
+            memoryId: event.payload.memoryId,
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            content: event.payload.content,
+            kind: event.payload.kind,
+            tags: event.payload.tags,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            deletedAt: null,
+          });
+          return;
+
+        case "project-memory.updated": {
+          const existingRow = yield* projectionProjectMemoryRepository.getById({
+            memoryId: event.payload.memoryId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionProjectMemoryRepository.upsert({
+            ...existingRow.value,
+            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.content !== undefined ? { content: event.payload.content } : {}),
+            ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
+            ...(event.payload.tags !== undefined ? { tags: event.payload.tags } : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "project-memory.deleted": {
+          const existingRow = yield* projectionProjectMemoryRepository.getById({
+            memoryId: event.payload.memoryId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionProjectMemoryRepository.upsert({
+            ...existingRow.value,
+            deletedAt: event.payload.deletedAt,
+            updatedAt: event.payload.deletedAt,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
   const projectors: ReadonlyArray<ProjectorDefinition> = [
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -1131,6 +1193,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.threads,
       apply: applyThreadsProjection,
+    },
+    {
+      name: ORCHESTRATION_PROJECTOR_NAMES.projectMemories,
+      apply: applyProjectMemoriesProjection,
     },
   ];
 
@@ -1232,5 +1298,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
+  Layer.provideMerge(ProjectionProjectMemoryRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

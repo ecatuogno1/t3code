@@ -110,6 +110,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    projectMemories: [],
     updatedAt: NOW_ISO,
   };
 }

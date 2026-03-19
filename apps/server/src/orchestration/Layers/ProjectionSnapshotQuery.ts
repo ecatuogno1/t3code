@@ -6,10 +6,12 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationReadModel,
   ProjectScript,
+  TrimmedNonEmptyString,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
+  type OrchestrationProjectMemory,
   type OrchestrationProposedPlan,
   type OrchestrationProject,
   type OrchestrationSession,
@@ -34,6 +36,7 @@ import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionTh
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionProjectMemory } from "../../persistence/Services/ProjectionProjectMemories.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -75,6 +78,11 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   assistantMessageId: Schema.NullOr(MessageId),
 });
+const ProjectionProjectMemoryDbRowSchema = ProjectionProjectMemory.mapFields(
+  Struct.assign({
+    tags: Schema.fromJsonString(Schema.Array(TrimmedNonEmptyString)),
+  }),
+);
 const ProjectionStateDbRowSchema = ProjectionState;
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
@@ -85,6 +93,7 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
   ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
   ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
+  ORCHESTRATION_PROJECTOR_NAMES.projectMemories,
 ] as const;
 
 function maxIso(left: string | null, right: string): string {
@@ -293,6 +302,26 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listProjectMemoryRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionProjectMemoryDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          memory_id AS "memoryId",
+          project_id AS "projectId",
+          title,
+          content,
+          kind,
+          tags_json AS "tags",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          deleted_at AS "deletedAt"
+        FROM projection_project_memories
+        ORDER BY created_at ASC, memory_id ASC
+      `,
+  });
+
   const listProjectionStateRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionStateDbRowSchema,
@@ -319,6 +348,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sessionRows,
             checkpointRows,
             latestTurnRows,
+            projectMemoryRows,
             stateRows,
           ] = yield* Effect.all([
             listProjectRows(undefined).pipe(
@@ -382,6 +412,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getSnapshot:listLatestTurns:query",
                   "ProjectionSnapshotQuery.getSnapshot:listLatestTurns:decodeRows",
+                ),
+              ),
+            ),
+            listProjectMemoryRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listProjectMemories:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listProjectMemories:decodeRows",
                 ),
               ),
             ),
@@ -548,10 +586,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             session: sessionsByThread.get(row.threadId) ?? null,
           }));
 
+          const projectMemories: Array<OrchestrationProjectMemory> = projectMemoryRows.map(
+            (row) => ({
+              id: row.memoryId,
+              projectId: row.projectId,
+              title: row.title,
+              content: row.content,
+              kind: row.kind,
+              tags: row.tags,
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+              deletedAt: row.deletedAt,
+            }),
+          );
+
+          for (const row of projectMemoryRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
+            projectMemories,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
