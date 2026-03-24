@@ -44,3 +44,5 @@ export const CheckpointRef = makeEntityId("CheckpointRef");
 export type CheckpointRef = typeof CheckpointRef.Type;
 export const ProjectMemoryId = makeEntityId("ProjectMemoryId");
 export type ProjectMemoryId = typeof ProjectMemoryId.Type;
+export const ThreadGroupId = makeEntityId("ThreadGroupId");
+export type ThreadGroupId = typeof ThreadGroupId.Type;
