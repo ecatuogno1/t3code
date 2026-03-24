@@ -11,6 +11,7 @@ import {
   ProjectId,
   ProviderKind,
   ThreadId,
+  WorkspaceId,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
@@ -124,6 +125,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       commandId: CommandId.makeUnsafe("cmd-thread-create"),
       threadId: THREAD_ID,
       projectId: PROJECT_ID,
+      workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
       title: "Integration Thread",
       model: defaultModel,
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -263,6 +265,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           commandId: CommandId.makeUnsafe("cmd-thread-create-real-codex"),
           threadId: THREAD_ID,
           projectId: PROJECT_ID,
+          workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
           title: "Integration Thread",
           model: "gpt-5.3-codex",
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,

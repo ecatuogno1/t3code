@@ -20,6 +20,7 @@ import {
   ProviderItemId,
   ThreadId,
   TurnId,
+  WorkspaceId,
   WS_CHANNELS,
   WS_METHODS,
   type WebSocketResponse,
@@ -1201,6 +1202,7 @@ describe("WebSocket Server", () => {
       commandId: "cmd-diff-thread-create",
       threadId: "thread-diff",
       projectId: "project-diff",
+      workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
       title: "Diff Thread",
       model: "gpt-5-codex",
       runtimeMode: "full-access",
@@ -1279,6 +1281,7 @@ describe("WebSocket Server", () => {
       commandId: "cmd-ws-runtime-thread-create",
       threadId: "thread-1",
       projectId: "project-1",
+      workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
       title: "Thread 1",
       model: "gpt-5-codex",
       runtimeMode: "full-access",
@@ -1591,6 +1594,103 @@ describe("WebSocket Server", () => {
       ]),
       truncated: false,
     });
+  });
+
+  it("supports projects.listDirectory", async () => {
+    const workspace = makeTempDir("t3code-ws-list-directory-");
+    fs.mkdirSync(path.join(workspace, "src", "components"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, "src", "index.ts"), "export {};\n", "utf8");
+    fs.writeFileSync(path.join(workspace, "src", "components", "App.tsx"), "export {};\n", "utf8");
+
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.projectsListDirectory, {
+      cwd: workspace,
+      directoryPath: "src",
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual({
+      directoryPath: "src",
+      entries: [
+        { path: "src/components", kind: "directory", parentPath: "src" },
+        { path: "src/index.ts", kind: "file", parentPath: "src" },
+      ],
+    });
+  });
+
+  it("supports projects.readFile", async () => {
+    const workspace = makeTempDir("t3code-ws-read-file-");
+    fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, "src", "app.ts"), "export const app = 1;\n", "utf8");
+
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.projectsReadFile, {
+      cwd: workspace,
+      relativePath: "src/app.ts",
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual(
+      expect.objectContaining({
+        relativePath: "src/app.ts",
+        contents: "export const app = 1;\n",
+        isBinary: false,
+        truncated: false,
+      }),
+    );
+  });
+
+  it("supports projects.resolveFileTestTarget", async () => {
+    const workspace = makeTempDir("t3code-ws-resolve-file-test-target-");
+    fs.writeFileSync(
+      path.join(workspace, "package.json"),
+      JSON.stringify({ devDependencies: { vitest: "^3.0.0" } }),
+      "utf8",
+    );
+    fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspace, "src", "math.ts"),
+      "export const add = (a, b) => a + b;\n",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(workspace, "src", "math.test.ts"),
+      "import { describe, it } from 'vitest';\n",
+      "utf8",
+    );
+
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.projectsResolveFileTestTarget, {
+      cwd: workspace,
+      relativePath: "src/math.ts",
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual(
+      expect.objectContaining({
+        kind: "command",
+        cwd: workspace,
+        relatedTestPath: "src/math.test.ts",
+      }),
+    );
   });
 
   it("supports projects.writeFile within the workspace root", async () => {

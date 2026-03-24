@@ -155,12 +155,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          workspaceId: command.workspaceId,
+          workspaceProjectId: command.workspaceProjectId ?? null,
           title: command.title,
           model: command.model,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          pullRequestUrl: command.pullRequestUrl ?? null,
+          previewUrls: command.previewUrls ?? [],
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -208,8 +212,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           ...(command.title !== undefined ? { title: command.title } : {}),
           ...(command.model !== undefined ? { model: command.model } : {}),
+          ...(command.workspaceProjectId !== undefined
+            ? { workspaceProjectId: command.workspaceProjectId ?? null }
+            : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.pullRequestUrl !== undefined
+            ? { pullRequestUrl: command.pullRequestUrl ?? null }
+            : {}),
+          ...(command.previewUrls !== undefined ? { previewUrls: command.previewUrls } : {}),
           updatedAt: occurredAt,
         },
       };

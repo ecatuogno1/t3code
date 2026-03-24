@@ -20,6 +20,8 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProjectId,
   ThreadId,
+  WORKSPACE_WS_CHANNELS,
+  WORKSPACE_WS_METHODS,
   WS_CHANNELS,
   WS_METHODS,
   WebSocketRequest,
@@ -49,7 +51,12 @@ import { createLogger } from "./logger";
 import { GitManager } from "./git/Services/GitManager.ts";
 import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { Keybindings } from "./keybindings";
-import { searchWorkspaceEntries } from "./workspaceEntries";
+import {
+  listWorkspaceDirectory,
+  readWorkspaceFile,
+  resolveWorkspaceFileTestTarget,
+  searchWorkspaceEntries,
+} from "./workspaceEntries";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
@@ -78,6 +85,8 @@ import { expandHomePath } from "./os-jank.ts";
 import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
+import { WorkspaceSnapshotQuery } from "./workspace/Services/WorkspaceSnapshotQuery.ts";
+import { WorkspaceCommandService } from "./workspace/Services/WorkspaceCommandService.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -205,6 +214,8 @@ const decodeWebSocketRequest = decodeJsonResult(WebSocketRequest);
 export type ServerCoreRuntimeServices =
   | OrchestrationEngineService
   | ProjectionSnapshotQuery
+  | WorkspaceSnapshotQuery
+  | WorkspaceCommandService
   | CheckpointDiffQuery
   | OrchestrationReactor
   | ProviderService
@@ -600,6 +611,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
+  const workspaceSnapshotQuery = yield* WorkspaceSnapshotQuery;
+  const workspaceCommandService = yield* WorkspaceCommandService;
   const checkpointDiffQuery = yield* CheckpointDiffQuery;
   const orchestrationReactor = yield* OrchestrationReactor;
   const { openInEditor } = yield* Open;
@@ -608,7 +621,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   yield* Effect.addFinalizer(() => Scope.close(subscriptionsScope, Exit.void));
 
   yield* Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) =>
-    pushBus.publishAll(ORCHESTRATION_WS_CHANNELS.domainEvent, event),
+    Effect.all([
+      pushBus.publishAll(ORCHESTRATION_WS_CHANNELS.domainEvent, event),
+      pushBus.publishAll(WORKSPACE_WS_CHANNELS.event, {
+        type: "workspace.snapshot-invalidated",
+        causeSequence: event.sequence,
+        occurredAt: event.occurredAt,
+      }),
+    ]).pipe(Effect.asVoid),
   ).pipe(Effect.forkIn(subscriptionsScope));
 
   yield* Stream.runForEach(keybindingsManager.streamChanges, (event) =>
@@ -658,11 +678,23 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       if (!existingThread) {
         const createdAt = new Date().toISOString();
         const threadId = ThreadId.makeUnsafe(crypto.randomUUID());
+        const workspaceResult = yield* workspaceCommandService.dispatch({
+          type: "workspace.create",
+          projectId: bootstrapProjectId,
+          source: "root",
+          createdAt,
+        });
+        const workspaceId = workspaceResult.workspaceId;
+        if (!workspaceId) {
+          return;
+        }
         yield* orchestrationEngine.dispatch({
           type: "thread.create",
           commandId: CommandId.makeUnsafe(crypto.randomUUID()),
           threadId,
           projectId: bootstrapProjectId,
+          workspaceId,
+          workspaceProjectId: null,
           title: "New thread",
           model: bootstrapProjectDefaultModel,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -709,6 +741,20 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       case ORCHESTRATION_WS_METHODS.getSnapshot:
         return yield* projectionReadModelQuery.getSnapshot();
 
+      case WORKSPACE_WS_METHODS.getSnapshot:
+        return yield* workspaceSnapshotQuery.getSnapshot();
+
+      case WORKSPACE_WS_METHODS.dispatchCommand: {
+        const result = yield* workspaceCommandService.dispatch(request.body.command);
+        const snapshot = yield* workspaceCommandService.getSnapshot();
+        yield* pushBus.publishAll(WORKSPACE_WS_CHANNELS.event, {
+          type: "workspace.snapshot-invalidated",
+          causeSequence: snapshot.snapshotSequence,
+          occurredAt: result.updatedAt,
+        });
+        return result;
+      }
+
       case ORCHESTRATION_WS_METHODS.dispatchCommand: {
         const { command } = request.body;
         const normalizedCommand = yield* normalizeDispatchCommand({ command });
@@ -744,6 +790,39 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           catch: (cause) =>
             new RouteRequestError({
               message: `Failed to search workspace entries: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.projectsListDirectory: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => listWorkspaceDirectory(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to list workspace directory: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.projectsReadFile: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => readWorkspaceFile(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to read workspace file: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.projectsResolveFileTestTarget: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => resolveWorkspaceFileTestTarget(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to resolve workspace file test target: ${String(cause)}`,
             }),
         });
       }

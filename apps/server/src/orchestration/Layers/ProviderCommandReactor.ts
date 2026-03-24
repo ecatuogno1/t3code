@@ -21,6 +21,10 @@ import { GitCore } from "../../git/Services/GitCore.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBinding,
+} from "../../provider/Services/ProviderSessionDirectory.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderCommandReactor,
@@ -142,6 +146,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
@@ -251,12 +256,17 @@ const make = Effect.gen(function* () {
         detail: `Model '${options.model}' does not belong to provider '${threadProvider}' for thread '${threadId}'.`,
       });
     }
-    const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
     const desiredModel = options?.model ?? thread.model;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
     });
+    const persistedBinding: Option.Option<ProviderRuntimeBinding> = yield* providerSessionDirectory
+      .getBinding(threadId)
+      .pipe(Effect.catch(() => Effect.succeed(Option.none<ProviderRuntimeBinding>())));
+    const persistedBindingValue = Option.getOrUndefined(persistedBinding);
+    const preferredProvider: ProviderKind =
+      options?.provider ?? currentProvider ?? persistedBindingValue?.provider ?? threadProvider;
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -359,9 +369,16 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(
-      options?.provider !== undefined ? { provider: options.provider } : undefined,
-    );
+    const startedSession = yield* startProviderSession({
+      ...(options?.provider !== undefined ? { provider: options.provider } : {}),
+      ...(persistedBindingValue?.resumeCursor !== undefined &&
+      persistedBindingValue.resumeCursor !== null
+        ? { resumeCursor: persistedBindingValue.resumeCursor }
+        : {}),
+      ...(options?.provider === undefined && persistedBindingValue?.provider !== undefined
+        ? { provider: persistedBindingValue.provider }
+        : {}),
+    });
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });

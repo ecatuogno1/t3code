@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import { ORCHESTRATION_WS_CHANNELS, ORCHESTRATION_WS_METHODS } from "./orchestration";
+import { WORKSPACE_WS_CHANNELS, WORKSPACE_WS_METHODS } from "./workspace";
 import { WebSocketRequest, WsResponse, WS_CHANNELS, WS_METHODS } from "./ws";
 
 const decodeWebSocketRequest = Schema.decodeUnknownEffect(WebSocketRequest);
@@ -73,6 +74,55 @@ it.effect("accepts git.preparePullRequestThread requests", () =>
   }),
 );
 
+it.effect("accepts workspace.getSnapshot requests", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWebSocketRequest({
+      id: "req-workspace-1",
+      body: {
+        _tag: WORKSPACE_WS_METHODS.getSnapshot,
+      },
+    });
+
+    assert.strictEqual(parsed.body._tag, WORKSPACE_WS_METHODS.getSnapshot);
+  }),
+);
+
+it.effect("accepts workspace.dispatchCommand requests", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWebSocketRequest({
+      id: "req-workspace-command-1",
+      body: {
+        _tag: WORKSPACE_WS_METHODS.dispatchCommand,
+        command: {
+          type: "workspace.layout.update",
+          workspaceId: "workspace:project-1:project-root",
+          paneOrder: ["chat:thread-1"],
+          activePaneId: "chat:thread-1",
+          lastFocusedPaneId: "chat:thread-1",
+          updatedAt: "2026-03-20T00:00:00.000Z",
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.body._tag, WORKSPACE_WS_METHODS.dispatchCommand);
+  }),
+);
+
+it.effect("accepts projects.readFile requests", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWebSocketRequest({
+      id: "req-project-read-file-1",
+      body: {
+        _tag: WS_METHODS.projectsReadFile,
+        cwd: "/repo",
+        relativePath: "src/app.ts",
+      },
+    });
+
+    assert.strictEqual(parsed.body._tag, WS_METHODS.projectsReadFile);
+  }),
+);
+
 it.effect("accepts typed websocket push envelopes with sequence", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeWsResponse({
@@ -110,5 +160,26 @@ it.effect("rejects push envelopes when channel payload does not match the channe
     );
 
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("accepts workspace push envelopes", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWsResponse({
+      type: "push",
+      sequence: 3,
+      channel: WORKSPACE_WS_CHANNELS.event,
+      data: {
+        type: "workspace.snapshot-invalidated",
+        causeSequence: 2,
+        occurredAt: "2026-03-20T00:00:00.000Z",
+      },
+    });
+
+    if (!("type" in parsed) || parsed.type !== "push") {
+      assert.fail("expected websocket response to decode as a push envelope");
+    }
+
+    assert.strictEqual(parsed.channel, WORKSPACE_WS_CHANNELS.event);
   }),
 );

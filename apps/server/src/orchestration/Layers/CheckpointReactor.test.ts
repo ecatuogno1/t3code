@@ -12,6 +12,7 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  WorkspaceId,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
@@ -292,6 +293,7 @@ describe("CheckpointReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
+        workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
         title: "Thread",
         model: "gpt-5-codex",
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,

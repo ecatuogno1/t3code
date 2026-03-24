@@ -12,8 +12,9 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  WorkspaceId,
 } from "@t3tools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
@@ -26,6 +27,10 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBinding,
+} from "../../provider/Services/ProviderSessionDirectory.ts";
 import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
@@ -195,6 +200,7 @@ describe("ProviderCommandReactor", () => {
     );
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
+    const persistedBindings = new Map<ThreadId, ProviderRuntimeBinding>();
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
@@ -210,6 +216,31 @@ describe("ProviderCommandReactor", () => {
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };
+    const providerSessionDirectory = {
+      upsert: (binding: ProviderRuntimeBinding) =>
+        Effect.sync(() => {
+          persistedBindings.set(binding.threadId, binding);
+        }),
+      getProvider: (threadId: ThreadId) =>
+        Effect.sync(() => {
+          const binding = persistedBindings.get(threadId);
+          if (!binding) {
+            throw new Error(`No persisted binding for ${threadId}`);
+          }
+          return binding.provider;
+        }),
+      getBinding: (threadId: ThreadId) =>
+        Effect.succeed(
+          persistedBindings.has(threadId)
+            ? Option.some(persistedBindings.get(threadId)!)
+            : Option.none<ProviderRuntimeBinding>(),
+        ),
+      remove: (threadId: ThreadId) =>
+        Effect.sync(() => {
+          persistedBindings.delete(threadId);
+        }),
+      listThreadIds: () => Effect.succeed([...persistedBindings.keys()]),
+    } as const;
 
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionPipelineLive),
@@ -220,6 +251,7 @@ describe("ProviderCommandReactor", () => {
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
+      Layer.provideMerge(Layer.succeed(ProviderSessionDirectory, providerSessionDirectory)),
       Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
       Layer.provideMerge(
         Layer.succeed(TextGeneration, { generateBranchName } as unknown as TextGenerationShape),
@@ -252,6 +284,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
+        workspaceId: WorkspaceId.makeUnsafe("workspace:test"),
         title: "Thread",
         model: threadModel,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -272,6 +305,7 @@ describe("ProviderCommandReactor", () => {
       stopSession,
       renameBranch,
       generateBranchName,
+      providerSessionDirectory,
       stateDir,
       drain,
     };
@@ -311,6 +345,49 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("uses a persisted provider resume cursor when the thread has no active session", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.providerSessionDirectory.upsert({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        provider: "codex",
+        runtimeMode: "approval-required",
+        status: "stopped",
+        resumeCursor: { threadId: "provider-thread-imported" },
+        runtimePayload: {
+          cwd: "/tmp/provider-project",
+          model: "gpt-5-codex",
+        },
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-imported"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-imported"),
+          role: "user",
+          text: "resume imported thread",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      provider: "codex",
+      resumeCursor: { threadId: "provider-thread-imported" },
+      runtimeMode: "approval-required",
+    });
   });
 
   it("forwards codex model options through session start and turn send", async () => {

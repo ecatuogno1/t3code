@@ -6,7 +6,12 @@ import { spawnSync } from "node:child_process";
 
 import { afterEach, assert, describe, it, vi } from "vitest";
 
-import { searchWorkspaceEntries } from "./workspaceEntries";
+import {
+  listWorkspaceDirectory,
+  readWorkspaceFile,
+  resolveWorkspaceFileTestTarget,
+  searchWorkspaceEntries,
+} from "./workspaceEntries";
 
 const tempDirs: string[] = [];
 
@@ -198,5 +203,100 @@ describe("searchWorkspaceEntries", () => {
     await searchWorkspaceEntries({ cwd, query: "", limit: 200 });
 
     assert.isAtMost(peakReads, 32);
+  });
+
+  it("lists a directory's direct children with directories first", async () => {
+    const cwd = makeTempDir("t3code-workspace-list-directory-");
+    writeFile(cwd, "src/components/Composer.tsx");
+    writeFile(cwd, "src/index.ts");
+    writeFile(cwd, "README.md");
+
+    const result = await listWorkspaceDirectory({ cwd, directoryPath: "src" });
+
+    assert.deepEqual(result, {
+      directoryPath: "src",
+      entries: [
+        { path: "src/components", kind: "directory", parentPath: "src" },
+        { path: "src/index.ts", kind: "file", parentPath: "src" },
+      ],
+    });
+  });
+
+  it("reads text file previews and marks oversized previews as truncated", async () => {
+    const cwd = makeTempDir("t3code-workspace-read-file-");
+    writeFile(cwd, "src/app.ts", `export const value = 1;\n${"a".repeat(300_000)}`);
+
+    const result = await readWorkspaceFile({ cwd, relativePath: "src/app.ts" });
+
+    assert.strictEqual(result.relativePath, "src/app.ts");
+    assert.strictEqual(result.isBinary, false);
+    assert.strictEqual(result.truncated, true);
+    assert.isNotNull(result.contents);
+    assert.isAbove(result.sizeBytes, result.previewMaxBytes);
+  });
+
+  it("returns binary metadata for undecodable files", async () => {
+    const cwd = makeTempDir("t3code-workspace-binary-file-");
+    const binaryPath = path.join(cwd, "assets", "logo.png");
+    fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+    fs.writeFileSync(binaryPath, Buffer.from([0, 159, 146, 150]));
+
+    const result = await readWorkspaceFile({ cwd, relativePath: "assets/logo.png" });
+
+    assert.deepInclude(result, {
+      relativePath: "assets/logo.png",
+      contents: null,
+      isBinary: true,
+      truncated: false,
+    });
+  });
+
+  it("resolves vitest file targets from matching test files", async () => {
+    const cwd = makeTempDir("t3code-workspace-vitest-target-");
+    writeFile(
+      cwd,
+      "package.json",
+      JSON.stringify({
+        devDependencies: { vitest: "^3.0.0" },
+      }),
+    );
+    writeFile(cwd, "src/math.ts", "export const add = (a, b) => a + b;\n");
+    writeFile(cwd, "src/math.test.ts", "import { describe, it } from 'vitest';\n");
+
+    const result = await resolveWorkspaceFileTestTarget({
+      cwd,
+      relativePath: "src/math.ts",
+    });
+
+    assert.deepInclude(result, {
+      kind: "command",
+      cwd,
+      relatedTestPath: "src/math.test.ts",
+    });
+    if (result.kind === "command") {
+      assert.include(result.command, "vitest run");
+      assert.strictEqual(result.env.T3CODE_RELATIVE_PATH, "src/math.ts");
+      assert.strictEqual(result.env.T3CODE_TEST_RELATIVE_PATH, "src/math.test.ts");
+    }
+  });
+
+  it("resolves python unittest targets from matching test files", async () => {
+    const cwd = makeTempDir("t3code-workspace-python-target-");
+    writeFile(cwd, "tests/test_math.py", "import unittest\n");
+    writeFile(cwd, "math.py", "def add(a, b):\n    return a + b\n");
+
+    const result = await resolveWorkspaceFileTestTarget({
+      cwd,
+      relativePath: "math.py",
+    });
+
+    assert.deepInclude(result, {
+      kind: "command",
+      cwd,
+      relatedTestPath: "tests/test_math.py",
+    });
+    if (result.kind === "command") {
+      assert.include(result.command, "python -m unittest tests.test_math");
+    }
   });
 });

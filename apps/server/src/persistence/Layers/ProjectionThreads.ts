@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -12,6 +12,12 @@ import {
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
 
+const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
+  Struct.assign({
+    previewUrls: Schema.fromJsonString(Schema.Array(Schema.String)),
+  }),
+);
+
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
@@ -22,12 +28,16 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         INSERT INTO projection_threads (
           thread_id,
           project_id,
+          workspace_id,
+          workspace_project_id,
           title,
           model,
           runtime_mode,
           interaction_mode,
           branch,
           worktree_path,
+          pull_request_url,
+          preview_urls_json,
           latest_turn_id,
           created_at,
           updated_at,
@@ -36,12 +46,16 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         VALUES (
           ${row.threadId},
           ${row.projectId},
+          ${row.workspaceId},
+          ${row.workspaceProjectId},
           ${row.title},
           ${row.model},
           ${row.runtimeMode},
           ${row.interactionMode},
           ${row.branch},
           ${row.worktreePath},
+          ${row.pullRequestUrl},
+          ${JSON.stringify(row.previewUrls)},
           ${row.latestTurnId},
           ${row.createdAt},
           ${row.updatedAt},
@@ -50,12 +64,16 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         ON CONFLICT (thread_id)
         DO UPDATE SET
           project_id = excluded.project_id,
+          workspace_id = excluded.workspace_id,
+          workspace_project_id = excluded.workspace_project_id,
           title = excluded.title,
           model = excluded.model,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
+          pull_request_url = excluded.pull_request_url,
+          preview_urls_json = excluded.preview_urls_json,
           latest_turn_id = excluded.latest_turn_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -65,18 +83,22 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const getProjectionThreadRow = SqlSchema.findOneOption({
     Request: GetProjectionThreadInput,
-    Result: ProjectionThread,
+    Result: ProjectionThreadDbRowSchema,
     execute: ({ threadId }) =>
       sql`
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          workspace_id AS "workspaceId",
+          workspace_project_id AS "workspaceProjectId",
           title,
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          pull_request_url AS "pullRequestUrl",
+          preview_urls_json AS "previewUrls",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -88,18 +110,22 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const listProjectionThreadRows = SqlSchema.findAll({
     Request: ListProjectionThreadsByProjectInput,
-    Result: ProjectionThread,
+    Result: ProjectionThreadDbRowSchema,
     execute: ({ projectId }) =>
       sql`
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          workspace_id AS "workspaceId",
+          workspace_project_id AS "workspaceProjectId",
           title,
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          pull_request_url AS "pullRequestUrl",
+          preview_urls_json AS "previewUrls",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",

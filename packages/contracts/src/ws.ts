@@ -12,6 +12,13 @@ import {
   OrchestrationReplayEventsInput,
 } from "./orchestration";
 import {
+  WorkspaceDispatchCommandInput,
+  WorkspaceEvent,
+  WorkspaceGetSnapshotInput,
+  WORKSPACE_WS_CHANNELS,
+  WORKSPACE_WS_METHODS,
+} from "./workspace";
+import {
   GitCheckoutInput,
   GitCreateBranchInput,
   GitPreparePullRequestThreadInput,
@@ -34,7 +41,13 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import { KeybindingRule } from "./keybindings";
-import { ProjectSearchEntriesInput, ProjectWriteFileInput } from "./project";
+import {
+  ProjectListDirectoryInput,
+  ProjectReadFileInput,
+  ProjectResolveFileTestTargetInput,
+  ProjectSearchEntriesInput,
+  ProjectWriteFileInput,
+} from "./project";
 import { OpenInEditorInput } from "./editor";
 import { ServerConfigUpdatedPayload } from "./server";
 
@@ -45,6 +58,9 @@ export const WS_METHODS = {
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
+  projectsListDirectory: "projects.listDirectory",
+  projectsReadFile: "projects.readFile",
+  projectsResolveFileTestTarget: "projects.resolveFileTestTarget",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
 
@@ -107,8 +123,13 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.getTurnDiff, OrchestrationGetTurnDiffInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getFullThreadDiff, OrchestrationGetFullThreadDiffInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.replayEvents, OrchestrationReplayEventsInput),
+  tagRequestBody(WORKSPACE_WS_METHODS.getSnapshot, WorkspaceGetSnapshotInput),
+  tagRequestBody(WORKSPACE_WS_METHODS.dispatchCommand, WorkspaceDispatchCommandInput),
 
   // Project Search
+  tagRequestBody(WS_METHODS.projectsListDirectory, ProjectListDirectoryInput),
+  tagRequestBody(WS_METHODS.projectsReadFile, ProjectReadFileInput),
+  tagRequestBody(WS_METHODS.projectsResolveFileTestTarget, ProjectResolveFileTestTargetInput),
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
 
@@ -174,6 +195,7 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
   readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
   readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
+  readonly [WORKSPACE_WS_CHANNELS.event]: WorkspaceEvent;
 }
 
 export type WsPushChannel = keyof WsPushPayloadByChannel;
@@ -200,12 +222,14 @@ export const WsPushOrchestrationDomainEvent = makeWsPushSchema(
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   OrchestrationEvent,
 );
+export const WsPushWorkspaceEvent = makeWsPushSchema(WORKSPACE_WS_CHANNELS.event, WorkspaceEvent);
 
 export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverConfigUpdated,
   WS_CHANNELS.terminalEvent,
   ORCHESTRATION_WS_CHANNELS.domainEvent,
+  WORKSPACE_WS_CHANNELS.event,
 ]);
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
@@ -214,6 +238,7 @@ export const WsPush = Schema.Union([
   WsPushServerConfigUpdated,
   WsPushTerminalEvent,
   WsPushOrchestrationDomainEvent,
+  WsPushWorkspaceEvent,
 ]);
 export type WsPush = typeof WsPush.Type;
 

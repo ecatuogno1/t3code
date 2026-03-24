@@ -16,6 +16,8 @@ import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/Proj
 import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
+import { WorkspaceSnapshotQueryLive } from "./workspace/Layers/WorkspaceSnapshotQuery";
+import { WorkspaceCommandServiceLive } from "./workspace/Layers/WorkspaceCommandService";
 import { ProviderUnsupportedError } from "./provider/Errors";
 import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
@@ -33,6 +35,9 @@ import { GitHubCliLive } from "./git/Layers/GitHubCli";
 import { CodexTextGenerationLive } from "./git/Layers/CodexTextGeneration";
 import { PtyAdapter } from "./terminal/Services/PTY";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { ProjectionWorkspaceRepositoryLive } from "./persistence/Layers/ProjectionWorkspaces";
+import { ProjectionWorkspaceProjectRepositoryLive } from "./persistence/Layers/ProjectionWorkspaceProjects";
+import { ProjectionProjectRepositoryLive } from "./persistence/Layers/ProjectionProjects";
 
 type RuntimePtyAdapterLoader = {
   layer: Layer.Layer<PtyAdapter, never, FileSystem.FileSystem | Path.Path>;
@@ -86,6 +91,9 @@ export function makeServerProviderLayer(): Layer.Layer<
 
 export function makeServerRuntimeServicesLayer() {
   const textGenerationLayer = CodexTextGenerationLive;
+  const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+    Layer.provide(ProviderSessionRuntimeRepositoryLive),
+  );
   const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
 
   const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -102,6 +110,22 @@ export function makeServerRuntimeServicesLayer() {
   const runtimeServicesLayer = Layer.mergeAll(
     orchestrationLayer,
     OrchestrationProjectionSnapshotQueryLive,
+    WorkspaceSnapshotQueryLive.pipe(
+      Layer.provideMerge(ProjectionWorkspaceRepositoryLive),
+      Layer.provideMerge(ProjectionWorkspaceProjectRepositoryLive),
+      Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+    ),
+    WorkspaceCommandServiceLive.pipe(
+      Layer.provideMerge(ProjectionProjectRepositoryLive),
+      Layer.provideMerge(ProjectionWorkspaceRepositoryLive),
+      Layer.provideMerge(
+        WorkspaceSnapshotQueryLive.pipe(
+          Layer.provideMerge(ProjectionWorkspaceRepositoryLive),
+          Layer.provideMerge(ProjectionWorkspaceProjectRepositoryLive),
+          Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+        ),
+      ),
+    ),
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,
@@ -111,6 +135,7 @@ export function makeServerRuntimeServicesLayer() {
   );
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(providerSessionDirectoryLayer),
     Layer.provideMerge(GitCoreLive),
     Layer.provideMerge(textGenerationLayer),
   );

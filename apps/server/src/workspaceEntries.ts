@@ -5,6 +5,13 @@ import { runProcess } from "./processRunner";
 
 import {
   ProjectEntry,
+  type ProjectListDirectoryInput,
+  type ProjectListDirectoryResult,
+  PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+  type ProjectReadFileInput,
+  type ProjectReadFileResult,
+  type ProjectResolveFileTestTargetInput,
+  type ProjectResolveFileTestTargetResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
@@ -44,9 +51,62 @@ interface RankedWorkspaceEntry {
 
 const workspaceIndexCache = new Map<string, WorkspaceIndex>();
 const inFlightWorkspaceIndexBuilds = new Map<string, Promise<WorkspaceIndex>>();
+const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 function toPosixPath(input: string): string {
   return input.split(path.sep).join("/");
+}
+
+function normalizeRelativeWorkspacePath(input: string): string | null {
+  const trimmed = input.trim().replaceAll("\\", "/");
+  if (trimmed.length === 0) {
+    return "";
+  }
+  if (trimmed.startsWith("/")) {
+    return null;
+  }
+  const segments = trimmed.split("/");
+  const normalizedSegments: string[] = [];
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (normalizedSegments.length === 0) {
+        return null;
+      }
+      normalizedSegments.pop();
+      continue;
+    }
+    normalizedSegments.push(segment);
+  }
+  return normalizedSegments.join("/");
+}
+
+function resolveWorkspacePath(
+  cwd: string,
+  relativePath: string,
+): {
+  absolutePath: string;
+  relativePath: string;
+} | null {
+  const normalizedRelativePath = normalizeRelativeWorkspacePath(relativePath);
+  if (normalizedRelativePath === null) {
+    return null;
+  }
+  const absolutePath = normalizedRelativePath ? path.join(cwd, normalizedRelativePath) : cwd;
+  const relativeToRoot = toPosixPath(path.relative(cwd, absolutePath));
+  if (
+    relativeToRoot === ".." ||
+    relativeToRoot.startsWith("../") ||
+    path.isAbsolute(relativeToRoot)
+  ) {
+    return null;
+  }
+  return {
+    absolutePath,
+    relativePath: normalizedRelativePath,
+  };
 }
 
 function parentPathOf(input: string): string | undefined {
@@ -562,4 +622,469 @@ export async function searchWorkspaceEntries(
     entries: rankedEntries.map((candidate) => candidate.entry),
     truncated: index.truncated || matchedEntryCount > limit,
   };
+}
+
+async function pathExists(absolutePath: string): Promise<boolean> {
+  try {
+    await fs.access(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  for (const value of buffer) {
+    if (value === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function packageManagerExecCommand(packageManager: "bun" | "pnpm" | "yarn" | "npm"): string {
+  switch (packageManager) {
+    case "bun":
+      return "bun x";
+    case "pnpm":
+      return "pnpm exec";
+    case "yarn":
+      return "yarn exec";
+    case "npm":
+      return "npm exec --";
+  }
+}
+
+async function detectNodePackageManager(cwd: string): Promise<"bun" | "pnpm" | "yarn" | "npm"> {
+  if (
+    (await pathExists(path.join(cwd, "bun.lock"))) ||
+    (await pathExists(path.join(cwd, "bun.lockb")))
+  ) {
+    return "bun";
+  }
+  if (await pathExists(path.join(cwd, "pnpm-lock.yaml"))) {
+    return "pnpm";
+  }
+  if (await pathExists(path.join(cwd, "yarn.lock"))) {
+    return "yarn";
+  }
+  return "npm";
+}
+
+async function readJsonFile<T>(absolutePath: string): Promise<T | null> {
+  try {
+    const fileContents = await fs.readFile(absolutePath, "utf8");
+    return JSON.parse(fileContents) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function readTextFile(absolutePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(absolutePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function detectNodeRunner(cwd: string): Promise<"playwright" | "vitest" | "jest" | null> {
+  const packageJson = await readJsonFile<{
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  }>(path.join(cwd, "package.json"));
+  const dependencyNames = new Set([
+    ...Object.keys(packageJson?.dependencies ?? {}),
+    ...Object.keys(packageJson?.devDependencies ?? {}),
+  ]);
+  const scriptContents = Object.values(packageJson?.scripts ?? {})
+    .join("\n")
+    .toLowerCase();
+
+  const hasPlaywrightConfig = await Promise.any(
+    [
+      "playwright.config.ts",
+      "playwright.config.js",
+      "playwright.config.mjs",
+      "playwright.config.cjs",
+    ].map(async (configFile) => {
+      if (await pathExists(path.join(cwd, configFile))) {
+        return true;
+      }
+      throw new Error("missing");
+    }),
+  ).catch(() => false);
+  if (
+    hasPlaywrightConfig ||
+    dependencyNames.has("@playwright/test") ||
+    scriptContents.includes("playwright")
+  ) {
+    return "playwright";
+  }
+
+  const hasVitestConfig = await Promise.any(
+    ["vitest.config.ts", "vitest.config.js", "vitest.config.mjs", "vitest.workspace.ts"].map(
+      async (configFile) => {
+        if (await pathExists(path.join(cwd, configFile))) {
+          return true;
+        }
+        throw new Error("missing");
+      },
+    ),
+  ).catch(() => false);
+  if (hasVitestConfig || dependencyNames.has("vitest") || scriptContents.includes("vitest")) {
+    return "vitest";
+  }
+
+  const hasJestConfig = await Promise.any(
+    [
+      "jest.config.ts",
+      "jest.config.js",
+      "jest.config.mjs",
+      "jest.config.cjs",
+      "jest.config.json",
+    ].map(async (configFile) => {
+      if (await pathExists(path.join(cwd, configFile))) {
+        return true;
+      }
+      throw new Error("missing");
+    }),
+  ).catch(() => false);
+  if (
+    hasJestConfig ||
+    dependencyNames.has("jest") ||
+    dependencyNames.has("@jest/globals") ||
+    scriptContents.includes("jest")
+  ) {
+    return "jest";
+  }
+
+  return null;
+}
+
+async function detectPythonRunner(cwd: string): Promise<"pytest" | "unittest" | null> {
+  const pyproject = await readTextFile(path.join(cwd, "pyproject.toml"));
+  const pytestIni = await readTextFile(path.join(cwd, "pytest.ini"));
+  const toxIni = await readTextFile(path.join(cwd, "tox.ini"));
+  const setupCfg = await readTextFile(path.join(cwd, "setup.cfg"));
+  const combinedConfig = [pyproject, pytestIni, toxIni, setupCfg]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  if (combinedConfig.includes("pytest")) {
+    return "pytest";
+  }
+
+  if ((await pathExists(path.join(cwd, "tests"))) || (await pathExists(path.join(cwd, "test")))) {
+    return "unittest";
+  }
+
+  return null;
+}
+
+function isNodeLikePath(relativePath: string): boolean {
+  return /\.(?:c|m)?(?:j|t)sx?$/i.test(relativePath);
+}
+
+function isPythonPath(relativePath: string): boolean {
+  return /\.py$/i.test(relativePath);
+}
+
+function isNodeTestPath(relativePath: string): boolean {
+  return /(^|\/)__tests__\/|(?:^|\/)[^/]+\.(?:test|spec)\.[^.]+$/i.test(relativePath);
+}
+
+function isPythonTestPath(relativePath: string): boolean {
+  return /(?:^|\/)(?:test_[^/]+|[^/]+_test)\.py$/i.test(relativePath);
+}
+
+function uniqueCandidatePaths(paths: string[]): string[] {
+  return [
+    ...new Set(
+      paths.map((candidate) => candidate.trim()).filter((candidate) => candidate.length > 0),
+    ),
+  ];
+}
+
+async function firstExistingRelativePath(
+  cwd: string,
+  candidates: string[],
+): Promise<string | null> {
+  for (const candidate of uniqueCandidatePaths(candidates)) {
+    if (await pathExists(path.join(cwd, candidate))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function resolveNodeRelatedTestPath(
+  cwd: string,
+  relativePath: string,
+): Promise<string | null> {
+  if (isNodeTestPath(relativePath)) {
+    return relativePath;
+  }
+  const ext = path.posix.extname(relativePath);
+  if (!ext) {
+    return null;
+  }
+  const basePath = relativePath.slice(0, -ext.length);
+  const dirname = path.posix.dirname(relativePath);
+  const basename = path.posix.basename(basePath);
+  const relativeDir = dirname === "." ? "" : dirname;
+  return firstExistingRelativePath(cwd, [
+    `${basePath}.test${ext}`,
+    `${basePath}.spec${ext}`,
+    relativeDir
+      ? `${relativeDir}/__tests__/${basename}.test${ext}`
+      : `__tests__/${basename}.test${ext}`,
+    relativeDir
+      ? `${relativeDir}/__tests__/${basename}.spec${ext}`
+      : `__tests__/${basename}.spec${ext}`,
+    `tests/${basePath}.test${ext}`,
+    `tests/${basePath}.spec${ext}`,
+    `tests/${basename}.test${ext}`,
+    `tests/${basename}.spec${ext}`,
+  ]);
+}
+
+async function resolvePythonRelatedTestPath(
+  cwd: string,
+  relativePath: string,
+): Promise<string | null> {
+  if (isPythonTestPath(relativePath)) {
+    return relativePath;
+  }
+  const dirname = path.posix.dirname(relativePath);
+  const basename = path.posix.basename(relativePath, ".py");
+  const relativeDir = dirname === "." ? "" : dirname;
+  return firstExistingRelativePath(cwd, [
+    relativeDir ? `${relativeDir}/test_${basename}.py` : `test_${basename}.py`,
+    relativeDir ? `${relativeDir}/${basename}_test.py` : `${basename}_test.py`,
+    relativeDir ? `tests/${relativeDir}/test_${basename}.py` : `tests/test_${basename}.py`,
+    relativeDir ? `tests/${relativeDir}/${basename}_test.py` : `tests/${basename}_test.py`,
+    `tests/test_${basename}.py`,
+    `tests/${basename}_test.py`,
+  ]);
+}
+
+function buildPythonModuleName(relativePath: string): string | null {
+  const withoutExtension = relativePath.replace(/\.py$/i, "");
+  const segments = withoutExtension.split("/");
+  if (segments.some((segment) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(segment))) {
+    return null;
+  }
+  return segments.join(".");
+}
+
+async function resolveWorkspaceFileTestTargetInternal(input: {
+  cwd: string;
+  relativePath: string;
+}): Promise<ProjectResolveFileTestTargetResult> {
+  if (isNodeLikePath(input.relativePath)) {
+    const relatedTestPath = await resolveNodeRelatedTestPath(input.cwd, input.relativePath);
+    const runner = await detectNodeRunner(input.cwd);
+    if (runner && relatedTestPath) {
+      const packageManager = await detectNodePackageManager(input.cwd);
+      const runnerCommand = packageManagerExecCommand(packageManager);
+      const quotedTestPath = quoteShellArg(relatedTestPath);
+      const command =
+        runner === "vitest"
+          ? `${runnerCommand} vitest run -- ${quotedTestPath}`
+          : runner === "jest"
+            ? `${runnerCommand} jest --runTestsByPath ${quotedTestPath}`
+            : `${runnerCommand} playwright test ${quotedTestPath}`;
+      return {
+        kind: "command",
+        cwd: input.cwd,
+        command,
+        env: {
+          T3CODE_FILE_PATH: path.join(input.cwd, input.relativePath),
+          T3CODE_RELATIVE_PATH: input.relativePath,
+          T3CODE_TEST_FILE_PATH: path.join(input.cwd, relatedTestPath),
+          T3CODE_TEST_RELATIVE_PATH: relatedTestPath,
+        },
+        relatedTestPath,
+      };
+    }
+    if (relatedTestPath) {
+      return {
+        kind: "open-file",
+        relativePath: relatedTestPath,
+      };
+    }
+    return { kind: "unsupported" };
+  }
+
+  if (isPythonPath(input.relativePath)) {
+    const relatedTestPath = await resolvePythonRelatedTestPath(input.cwd, input.relativePath);
+    const runner = await detectPythonRunner(input.cwd);
+    if (runner && relatedTestPath) {
+      const command =
+        runner === "pytest"
+          ? `python -m pytest ${quoteShellArg(relatedTestPath)}`
+          : (() => {
+              const moduleName = buildPythonModuleName(relatedTestPath);
+              return moduleName ? `python -m unittest ${moduleName}` : null;
+            })();
+      if (command) {
+        return {
+          kind: "command",
+          cwd: input.cwd,
+          command,
+          env: {
+            T3CODE_FILE_PATH: path.join(input.cwd, input.relativePath),
+            T3CODE_RELATIVE_PATH: input.relativePath,
+            T3CODE_TEST_FILE_PATH: path.join(input.cwd, relatedTestPath),
+            T3CODE_TEST_RELATIVE_PATH: relatedTestPath,
+          },
+          relatedTestPath,
+        };
+      }
+    }
+    if (relatedTestPath) {
+      return {
+        kind: "open-file",
+        relativePath: relatedTestPath,
+      };
+    }
+  }
+
+  return { kind: "unsupported" };
+}
+
+export async function listWorkspaceDirectory(
+  input: ProjectListDirectoryInput,
+): Promise<ProjectListDirectoryResult> {
+  const resolved = resolveWorkspacePath(input.cwd, input.directoryPath);
+  if (!resolved) {
+    throw new Error("Workspace directory path must stay within the project root.");
+  }
+
+  const stat = await fs.stat(resolved.absolutePath);
+  if (!stat.isDirectory()) {
+    throw new Error("Workspace directory listing target must be a directory.");
+  }
+
+  const dirents = await fs.readdir(resolved.absolutePath, { withFileTypes: true });
+  const candidateEntries = dirents
+    .filter((dirent) => dirent.isDirectory() || dirent.isFile())
+    .filter((dirent) => !(dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)))
+    .map((dirent) => {
+      const relativePath = toPosixPath(
+        resolved.relativePath ? path.join(resolved.relativePath, dirent.name) : dirent.name,
+      );
+      return {
+        dirent,
+        entry: {
+          path: relativePath,
+          kind: dirent.isDirectory() ? ("directory" as const) : ("file" as const),
+          ...(resolved.relativePath ? { parentPath: resolved.relativePath } : {}),
+        } satisfies ProjectEntry,
+      };
+    })
+    .filter((candidate) => !isPathInIgnoredDirectory(candidate.entry.path));
+
+  const allowedPathSet = (await isInsideGitWorkTree(input.cwd))
+    ? new Set(
+        await filterGitIgnoredPaths(
+          input.cwd,
+          candidateEntries.map((candidate) => candidate.entry.path),
+        ),
+      )
+    : null;
+  const entries = candidateEntries
+    .filter((candidate) => (allowedPathSet ? allowedPathSet.has(candidate.entry.path) : true))
+    .map((candidate) => candidate.entry)
+    .toSorted((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === "directory" ? -1 : 1;
+      }
+      return left.path.localeCompare(right.path, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+
+  return {
+    directoryPath: resolved.relativePath,
+    entries,
+  };
+}
+
+export async function readWorkspaceFile(
+  input: ProjectReadFileInput,
+): Promise<ProjectReadFileResult> {
+  const resolved = resolveWorkspacePath(input.cwd, input.relativePath);
+  if (!resolved || resolved.relativePath.length === 0) {
+    throw new Error("Workspace file path must stay within the project root.");
+  }
+
+  const stat = await fs.stat(resolved.absolutePath);
+  if (!stat.isFile()) {
+    throw new Error("Workspace file preview target must be a file.");
+  }
+
+  const previewBytes = Math.min(stat.size, PROJECT_READ_FILE_PREVIEW_MAX_BYTES);
+  const handle = await fs.open(resolved.absolutePath, "r");
+  try {
+    const buffer = Buffer.alloc(previewBytes);
+    const { bytesRead } = await handle.read(buffer, 0, previewBytes, 0);
+    const previewBuffer = buffer.subarray(0, bytesRead);
+    if (looksBinary(previewBuffer)) {
+      return {
+        relativePath: resolved.relativePath,
+        contents: null,
+        isBinary: true,
+        truncated: stat.size > PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+        sizeBytes: stat.size,
+        previewMaxBytes: PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+      };
+    }
+
+    try {
+      return {
+        relativePath: resolved.relativePath,
+        contents: textDecoder.decode(previewBuffer),
+        isBinary: false,
+        truncated: stat.size > PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+        sizeBytes: stat.size,
+        previewMaxBytes: PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+      };
+    } catch {
+      return {
+        relativePath: resolved.relativePath,
+        contents: null,
+        isBinary: true,
+        truncated: stat.size > PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+        sizeBytes: stat.size,
+        previewMaxBytes: PROJECT_READ_FILE_PREVIEW_MAX_BYTES,
+      };
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function resolveWorkspaceFileTestTarget(
+  input: ProjectResolveFileTestTargetInput,
+): Promise<ProjectResolveFileTestTargetResult> {
+  const resolved = resolveWorkspacePath(input.cwd, input.relativePath);
+  if (!resolved || resolved.relativePath.length === 0) {
+    throw new Error("Workspace file path must stay within the project root.");
+  }
+  const stat = await fs.stat(resolved.absolutePath);
+  if (!stat.isFile()) {
+    throw new Error("Workspace file test target must be a file.");
+  }
+  return resolveWorkspaceFileTestTargetInternal({
+    cwd: input.cwd,
+    relativePath: resolved.relativePath,
+  });
 }

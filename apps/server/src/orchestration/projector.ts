@@ -251,12 +251,16 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
+            workspaceId: payload.workspaceId,
+            workspaceProjectId: payload.workspaceProjectId ?? null,
             title: payload.title,
             model: payload.model,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            pullRequestUrl: payload.pullRequestUrl ?? null,
+            previewUrls: payload.previewUrls ?? [],
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -296,8 +300,15 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
             ...(payload.model !== undefined ? { model: payload.model } : {}),
+            ...(payload.workspaceProjectId !== undefined
+              ? { workspaceProjectId: payload.workspaceProjectId ?? null }
+              : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.pullRequestUrl !== undefined
+              ? { pullRequestUrl: payload.pullRequestUrl ?? null }
+              : {}),
+            ...(payload.previewUrls !== undefined ? { previewUrls: payload.previewUrls } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

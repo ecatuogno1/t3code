@@ -149,6 +149,7 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
     const parsed = yield* decodeThreadCreatedPayload({
       threadId: "thread-1",
       projectId: "project-1",
+      workspaceId: "workspace:test",
       title: "Thread title",
       model: "gpt-5.4",
       interactionMode: "default",

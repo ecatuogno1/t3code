@@ -13,6 +13,8 @@ import {
   RuntimeMode,
   ThreadId,
   TurnId,
+  WorkspaceId,
+  WorkspaceProjectId,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
@@ -22,12 +24,18 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  workspaceProjectId: Schema.NullOr(WorkspaceProjectId).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   title: Schema.String,
   model: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  pullRequestUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(() => null)),
+  previewUrls: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

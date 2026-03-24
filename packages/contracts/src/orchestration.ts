@@ -13,6 +13,8 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
+  WorkspaceId,
+  WorkspaceProjectId,
 } from "./baseSchemas";
 
 export const ORCHESTRATION_WS_METHODS = {
@@ -272,6 +274,10 @@ export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  workspaceProjectId: Schema.NullOr(WorkspaceProjectId).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   title: TrimmedNonEmptyString,
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode,
@@ -280,6 +286,12 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  pullRequestUrl: Schema.optional(
+    Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  ),
+  previewUrls: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -331,6 +343,8 @@ const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  workspaceProjectId: Schema.optional(Schema.NullOr(WorkspaceProjectId)),
   title: TrimmedNonEmptyString,
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode,
@@ -339,6 +353,8 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  pullRequestUrl: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  previewUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   createdAt: IsoDateTime,
 });
 
@@ -354,8 +370,11 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   model: Schema.optional(TrimmedNonEmptyString),
+  workspaceProjectId: Schema.optional(Schema.NullOr(WorkspaceProjectId)),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  pullRequestUrl: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  previewUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -633,6 +652,12 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  workspaceId: WorkspaceId.pipe(
+    Schema.withDecodingDefault(() => WorkspaceId.makeUnsafe("default")),
+  ),
+  workspaceProjectId: Schema.NullOr(WorkspaceProjectId).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   title: TrimmedNonEmptyString,
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
@@ -641,6 +666,12 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  pullRequestUrl: Schema.optional(
+    Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  ),
+  previewUrls: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -654,8 +685,11 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   model: Schema.optional(TrimmedNonEmptyString),
+  workspaceProjectId: Schema.optional(Schema.NullOr(WorkspaceProjectId)),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  pullRequestUrl: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  previewUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   updatedAt: IsoDateTime,
 });
 

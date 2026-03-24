@@ -8,7 +8,9 @@ import {
   OrchestrationReadModel,
   ProjectScript,
   ThreadId,
+  TrimmedNonEmptyString,
   TurnId,
+  WorkspaceBrowserTab,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
@@ -55,7 +57,19 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
-const ProjectionThreadDbRowSchema = ProjectionThread;
+const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
+  Struct.assign({
+    previewUrls: Schema.fromJsonString(Schema.Array(TrimmedNonEmptyString)),
+  }),
+);
+const ProjectionWorkspaceContextDbRowSchema = Schema.Struct({
+  workspaceId: ProjectionThread.fields.workspaceId,
+  source: Schema.String,
+  rootWorkspaceId: ProjectionThread.fields.workspaceId,
+  contextKey: Schema.NullOr(TrimmedNonEmptyString),
+  browserTabs: Schema.fromJsonString(Schema.Array(WorkspaceBrowserTab)),
+  detectedDevServerUrls: Schema.fromJsonString(Schema.Array(TrimmedNonEmptyString)),
+});
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   Struct.assign({
     payload: Schema.fromJsonString(Schema.Unknown),
@@ -159,18 +173,38 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          workspace_id AS "workspaceId",
+          workspace_project_id AS "workspaceProjectId",
           title,
           model,
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          pull_request_url AS "pullRequestUrl",
+          preview_urls_json AS "previewUrls",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
+      `,
+  });
+
+  const listWorkspaceContextRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionWorkspaceContextDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          workspace_id AS "workspaceId",
+          source,
+          root_workspace_id AS "rootWorkspaceId",
+          context_key AS "contextKey",
+          browser_tabs_json AS "browserTabs",
+          detected_dev_server_urls_json AS "detectedDevServerUrls"
+        FROM projection_workspaces
       `,
   });
 
@@ -319,6 +353,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const [
             projectRows,
             threadRows,
+            workspaceContextRows,
             messageRows,
             proposedPlanRows,
             activityRows,
@@ -340,6 +375,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getSnapshot:listThreads:query",
                   "ProjectionSnapshotQuery.getSnapshot:listThreads:decodeRows",
+                ),
+              ),
+            ),
+            listWorkspaceContextRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listWorkspaceContexts:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listWorkspaceContexts:decodeRows",
                 ),
               ),
             ),
@@ -542,15 +585,64 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             deletedAt: row.deletedAt,
           }));
 
+          const workspaceContextById = new Map(
+            workspaceContextRows.map((row) => [row.workspaceId, row] as const),
+          );
+
+          const inferPullRequestUrl = (row: (typeof threadRows)[number]): string | null => {
+            if (row.pullRequestUrl?.trim()) {
+              return row.pullRequestUrl;
+            }
+            const workspaceContext = workspaceContextById.get(row.workspaceId) ?? null;
+            if (!workspaceContext || workspaceContext.source !== "pull-request") {
+              return null;
+            }
+            const contextKey = workspaceContext.contextKey?.trim() ?? "";
+            if (contextKey.startsWith("pull-request:")) {
+              return contextKey.slice("pull-request:".length) || null;
+            }
+            return (
+              workspaceContext.browserTabs.find((tab) =>
+                /github\.com\/.+\/pull\/\d+/i.test(tab.url),
+              )?.url ?? null
+            );
+          };
+
+          const inferPreviewUrls = (row: (typeof threadRows)[number]): string[] => {
+            if (row.previewUrls.length > 0) {
+              return [...row.previewUrls];
+            }
+            const workspaceContext = workspaceContextById.get(row.workspaceId) ?? null;
+            if (!workspaceContext) {
+              return [];
+            }
+            return Array.from(
+              new Set([
+                ...workspaceContext.detectedDevServerUrls,
+                ...workspaceContext.browserTabs
+                  .map((tab) => tab.url)
+                  .filter((url) => /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(url)),
+              ]),
+            );
+          };
+
           const threads: Array<OrchestrationThread> = threadRows.map((row) => ({
             id: row.threadId,
             projectId: row.projectId,
+            workspaceId:
+              workspaceContextById.get(row.workspaceId)?.source === "worktree" ||
+              workspaceContextById.get(row.workspaceId)?.source === "pull-request"
+                ? (workspaceContextById.get(row.workspaceId)?.rootWorkspaceId ?? row.workspaceId)
+                : row.workspaceId,
+            workspaceProjectId: row.workspaceProjectId,
             title: row.title,
             model: row.model,
             runtimeMode: row.runtimeMode,
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            pullRequestUrl: inferPullRequestUrl(row),
+            previewUrls: [...inferPreviewUrls(row)],
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,

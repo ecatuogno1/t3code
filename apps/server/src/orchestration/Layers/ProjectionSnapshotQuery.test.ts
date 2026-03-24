@@ -1,4 +1,12 @@
-import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  CheckpointRef,
+  EventId,
+  MessageId,
+  ProjectId,
+  ThreadId,
+  TurnId,
+  WorkspaceId,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -56,6 +64,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         INSERT INTO projection_threads (
           thread_id,
           project_id,
+          workspace_id,
           title,
           model,
           branch,
@@ -68,6 +77,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         VALUES (
           'thread-1',
           'project-1',
+          'workspace:project-1:project-root',
           'Thread 1',
           'gpt-5-codex',
           NULL,
@@ -253,12 +263,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
+          workspaceId: WorkspaceId.makeUnsafe("workspace:project-1:project-root"),
+          workspaceProjectId: null,
           title: "Thread 1",
           model: "gpt-5-codex",
           interactionMode: "default",
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          pullRequestUrl: null,
+          previewUrls: [],
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
