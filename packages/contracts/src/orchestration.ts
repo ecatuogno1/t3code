@@ -9,7 +9,9 @@ import {
   MessageId,
   NonNegativeInt,
   ProjectId,
+  ProjectMemoryId,
   ProviderItemId,
+  ThreadGroupId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
@@ -50,7 +52,6 @@ export const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   homePath: Schema.optional(TrimmedNonEmptyString),
 });
-
 export const ClaudeProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   permissionMode: Schema.optional(TrimmedNonEmptyString),
@@ -153,6 +154,22 @@ export const OrchestrationProject = Schema.Struct({
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
+
+export const ProjectMemoryKind = Schema.Literals(["note", "context", "reference", "feedback"]);
+export type ProjectMemoryKind = typeof ProjectMemoryKind.Type;
+
+export const OrchestrationProjectMemory = Schema.Struct({
+  id: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  deletedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationProjectMemory = typeof OrchestrationProjectMemory.Type;
 
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
@@ -271,6 +288,14 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const OrchestrationThreadCategorization = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  fingerprint: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationThreadCategorization = typeof OrchestrationThreadCategorization.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -292,10 +317,14 @@ export const OrchestrationThread = Schema.Struct({
   previewUrls: Schema.optional(
     Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
   ),
+  groupId: Schema.NullOr(ThreadGroupId).pipe(Schema.withDecodingDefault(() => null)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
+  categorization: Schema.optional(
+    Schema.NullOr(OrchestrationThreadCategorization).pipe(Schema.withDecodingDefault(() => null)),
+  ),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
   activities: Schema.Array(OrchestrationThreadActivity),
@@ -304,10 +333,39 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const ThreadGroupColor = Schema.Literals([
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "gray",
+]);
+export type ThreadGroupColor = typeof ThreadGroupColor.Type;
+
+export const OrchestrationThreadGroup = Schema.Struct({
+  id: ThreadGroupId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  color: ThreadGroupColor,
+  orderIndex: NonNegativeInt,
+  isCollapsed: Schema.Boolean,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  deletedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationThreadGroup = typeof OrchestrationThreadGroup.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  threadGroups: Schema.Array(OrchestrationThreadGroup).pipe(Schema.withDecodingDefault(() => [])),
+  projectMemories: Schema.Array(OrchestrationProjectMemory).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -478,6 +536,65 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadGroupCreateCommand = Schema.Struct({
+  type: Schema.Literal("thread-group.create"),
+  commandId: CommandId,
+  groupId: ThreadGroupId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  color: ThreadGroupColor,
+  createdAt: IsoDateTime,
+});
+
+const ThreadGroupUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread-group.update"),
+  commandId: CommandId,
+  groupId: ThreadGroupId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  color: Schema.optional(ThreadGroupColor),
+});
+
+const ThreadGroupDeleteCommand = Schema.Struct({
+  type: Schema.Literal("thread-group.delete"),
+  commandId: CommandId,
+  groupId: ThreadGroupId,
+});
+
+const ThreadGroupSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.group.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  groupId: Schema.NullOr(ThreadGroupId),
+});
+
+const ProjectMemoryCreateCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.create"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const ProjectMemoryUpdateCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.update"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  content: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(ProjectMemoryKind),
+  tags: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+
+const ProjectMemoryDeleteCommand = Schema.Struct({
+  type: Schema.Literal("project-memory.delete"),
+  commandId: CommandId,
+  memoryId: ProjectMemoryId,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -493,6 +610,13 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadGroupCreateCommand,
+  ThreadGroupUpdateCommand,
+  ThreadGroupDeleteCommand,
+  ThreadGroupSetCommand,
+  ProjectMemoryCreateCommand,
+  ProjectMemoryUpdateCommand,
+  ProjectMemoryDeleteCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -512,6 +636,13 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadGroupCreateCommand,
+  ThreadGroupUpdateCommand,
+  ThreadGroupDeleteCommand,
+  ThreadGroupSetCommand,
+  ProjectMemoryCreateCommand,
+  ProjectMemoryUpdateCommand,
+  ProjectMemoryDeleteCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -572,6 +703,37 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadImportMessage = Schema.Struct({
+  messageId: MessageId,
+  role: OrchestrationMessageRole,
+  text: Schema.String,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+const ThreadImportCommand = Schema.Struct({
+  type: Schema.Literal("thread.import"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  workspaceProjectId: Schema.optional(Schema.NullOr(WorkspaceProjectId)),
+  title: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  provider: ProviderKind,
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  pullRequestUrl: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  previewUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  messages: Schema.Array(ThreadImportMessage),
+  provenanceActivity: Schema.optional(OrchestrationThreadActivity),
+  createdAt: IsoDateTime,
+});
+
 const ThreadRevertCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.revert.complete"),
   commandId: CommandId,
@@ -587,6 +749,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
+  ThreadImportCommand,
   ThreadRevertCompleteCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -618,10 +781,22 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread-group.created",
+  "thread-group.updated",
+  "thread-group.deleted",
+  "thread.group-set",
+  "project-memory.created",
+  "project-memory.updated",
+  "project-memory.deleted",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "project",
+  "thread",
+  "thread-group",
+  "project-memory",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -797,6 +972,31 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ProjectMemoryCreatedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  content: TrimmedNonEmptyString,
+  kind: ProjectMemoryKind,
+  tags: Schema.Array(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ProjectMemoryUpdatedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  content: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(ProjectMemoryKind),
+  tags: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  updatedAt: IsoDateTime,
+});
+
+export const ProjectMemoryDeletedPayload = Schema.Struct({
+  memoryId: ProjectMemoryId,
+  deletedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -810,7 +1010,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, ThreadGroupId, ProjectMemoryId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -918,6 +1118,61 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread-group.created"),
+    payload: Schema.Struct({
+      groupId: ThreadGroupId,
+      projectId: ProjectId,
+      title: TrimmedNonEmptyString,
+      color: ThreadGroupColor,
+      orderIndex: NonNegativeInt,
+      createdAt: IsoDateTime,
+      updatedAt: IsoDateTime,
+    }),
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread-group.updated"),
+    payload: Schema.Struct({
+      groupId: ThreadGroupId,
+      title: Schema.optional(TrimmedNonEmptyString),
+      color: Schema.optional(ThreadGroupColor),
+      updatedAt: IsoDateTime,
+    }),
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread-group.deleted"),
+    payload: Schema.Struct({
+      groupId: ThreadGroupId,
+      deletedAt: IsoDateTime,
+    }),
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.group-set"),
+    payload: Schema.Struct({
+      threadId: ThreadId,
+      groupId: Schema.NullOr(ThreadGroupId),
+      updatedAt: IsoDateTime,
+    }),
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.created"),
+    payload: ProjectMemoryCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.updated"),
+    payload: ProjectMemoryUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project-memory.deleted"),
+    payload: ProjectMemoryDeletedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

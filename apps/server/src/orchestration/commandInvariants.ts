@@ -1,9 +1,11 @@
 import type {
   OrchestrationCommand,
   OrchestrationProject,
+  OrchestrationProjectMemory,
   OrchestrationReadModel,
   OrchestrationThread,
   ProjectId,
+  ProjectMemoryId,
   ThreadId,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
@@ -100,6 +102,46 @@ export function requireThreadAbsent(input: {
     invariantError(
       input.command.type,
       `Thread '${input.threadId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function findProjectMemoryById(
+  readModel: OrchestrationReadModel,
+  memoryId: ProjectMemoryId,
+): OrchestrationProjectMemory | undefined {
+  return readModel.projectMemories.find((memory) => memory.id === memoryId);
+}
+
+export function requireProjectMemory(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly memoryId: ProjectMemoryId;
+}): Effect.Effect<OrchestrationProjectMemory, OrchestrationCommandInvariantError> {
+  const memory = findProjectMemoryById(input.readModel, input.memoryId);
+  if (memory) {
+    return Effect.succeed(memory);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Project memory '${input.memoryId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireProjectMemoryAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly memoryId: ProjectMemoryId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findProjectMemoryById(input.readModel, input.memoryId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Project memory '${input.memoryId}' already exists and cannot be created twice.`,
     ),
   );
 }

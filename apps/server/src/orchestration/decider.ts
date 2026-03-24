@@ -9,6 +9,8 @@ import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireProject,
   requireProjectAbsent,
+  requireProjectMemory,
+  requireProjectMemoryAbsent,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -169,6 +171,96 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       };
+    }
+
+    case "thread.import": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireThreadAbsent({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+
+      const events: Array<Omit<OrchestrationEvent, "sequence">> = [
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+            metadata: {
+              adapterKey: command.provider,
+            },
+          }),
+          type: "thread.created",
+          payload: {
+            threadId: command.threadId,
+            projectId: command.projectId,
+            workspaceId: command.workspaceId,
+            workspaceProjectId: command.workspaceProjectId ?? null,
+            title: command.title,
+            model: command.model,
+            runtimeMode: command.runtimeMode,
+            interactionMode: command.interactionMode,
+            branch: command.branch,
+            worktreePath: command.worktreePath,
+            pullRequestUrl: command.pullRequestUrl ?? null,
+            previewUrls: command.previewUrls ?? [],
+            createdAt: command.createdAt,
+            updatedAt: command.createdAt,
+          },
+        },
+      ];
+
+      for (const message of command.messages) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: message.createdAt,
+            commandId: command.commandId,
+            metadata: {
+              adapterKey: command.provider,
+            },
+          }),
+          type: "thread.message-sent",
+          payload: {
+            threadId: command.threadId,
+            messageId: message.messageId,
+            role: message.role,
+            text: message.text,
+            turnId: null,
+            streaming: false,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+          },
+        });
+      }
+
+      if (command.provenanceActivity !== undefined) {
+        events.push({
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.provenanceActivity.createdAt,
+            commandId: command.commandId,
+            metadata: {
+              adapterKey: command.provider,
+            },
+          }),
+          type: "thread.activity-appended",
+          payload: {
+            threadId: command.threadId,
+            activity: command.provenanceActivity,
+          },
+        });
+      }
+
+      return events;
     }
 
     case "thread.delete": {
@@ -642,6 +734,174 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "project-memory.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireProjectMemoryAbsent({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.created",
+        payload: {
+          memoryId: command.memoryId,
+          projectId: command.projectId,
+          title: command.title,
+          content: command.content,
+          kind: command.kind,
+          tags: command.tags,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "project-memory.update": {
+      yield* requireProjectMemory({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.updated",
+        payload: {
+          memoryId: command.memoryId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.content !== undefined ? { content: command.content } : {}),
+          ...(command.kind !== undefined ? { kind: command.kind } : {}),
+          ...(command.tags !== undefined ? { tags: command.tags } : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "project-memory.delete": {
+      yield* requireProjectMemory({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.deleted",
+        payload: {
+          memoryId: command.memoryId,
+          deletedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread-group.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const existingGroups = readModel.threadGroups?.filter(
+        (g) => g.projectId === command.projectId && !g.deletedAt,
+      );
+      const orderIndex = existingGroups ? existingGroups.length : 0;
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.created",
+        payload: {
+          groupId: command.groupId,
+          projectId: command.projectId,
+          title: command.title,
+          color: command.color,
+          orderIndex,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread-group.update": {
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.updated",
+        payload: {
+          groupId: command.groupId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.color !== undefined ? { color: command.color } : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread-group.delete": {
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread-group",
+          aggregateId: command.groupId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread-group.deleted",
+        payload: {
+          groupId: command.groupId,
+          deletedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.group.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.group-set",
+        payload: {
+          threadId: command.threadId,
+          groupId: command.groupId,
+          updatedAt: occurredAt,
+        },
+      };
+    }
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };

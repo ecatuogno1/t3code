@@ -273,6 +273,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           worktreePath: null,
           pullRequestUrl: null,
           previewUrls: [],
+          groupId: null,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -288,6 +289,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           deletedAt: null,
+          categorization: null,
           messages: [
             {
               id: asMessageId("message-1"),

@@ -50,6 +50,8 @@ import {
 } from "./project";
 import { OpenInEditorInput } from "./editor";
 import { ServerConfigUpdatedPayload } from "./server";
+import { ThreadImportRequest, ThreadImportScanRequest } from "./imports";
+import { ThreadCategorizationRequest } from "./threadCategorization";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -91,6 +93,13 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverUpsertKeybinding: "server.upsertKeybinding",
+
+  // Imports
+  importsScan: "imports.scan",
+  importsImportSession: "imports.importSession",
+
+  // Thread categorization
+  threadCategorizationCategorizeProjectThreads: "threadCategorization.categorizeProjectThreads",
 } as const;
 
 // ── Push Event Channels ──────────────────────────────────────────────
@@ -160,6 +169,16 @@ const WebSocketRequestBody = Schema.Union([
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
+
+  // Imports
+  tagRequestBody(WS_METHODS.importsScan, ThreadImportScanRequest),
+  tagRequestBody(WS_METHODS.importsImportSession, ThreadImportRequest),
+
+  // Thread categorization
+  tagRequestBody(
+    WS_METHODS.threadCategorizationCategorizeProjectThreads,
+    ThreadCategorizationRequest,
+  ),
 ]);
 
 export const WebSocketRequest = Schema.Struct({

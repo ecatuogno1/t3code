@@ -38,6 +38,10 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { ProjectionWorkspaceRepositoryLive } from "./persistence/Layers/ProjectionWorkspaces";
 import { ProjectionWorkspaceProjectRepositoryLive } from "./persistence/Layers/ProjectionWorkspaceProjects";
 import { ProjectionProjectRepositoryLive } from "./persistence/Layers/ProjectionProjects";
+import { ThreadImportSourceRepositoryLive } from "./persistence/Layers/ThreadImportSources";
+import { ProjectionThreadCategorizationRepositoryLive } from "./persistence/Layers/ProjectionThreadCategorizations";
+import { ThreadImportServiceLive } from "./imports/Layers/ThreadImportService";
+import { ThreadCategorizationServiceLive } from "./threadCategorization/Layers/ThreadCategorizationService";
 
 type RuntimePtyAdapterLoader = {
   layer: Layer.Layer<PtyAdapter, never, FileSystem.FileSystem | Path.Path>;
@@ -130,6 +134,15 @@ export function makeServerRuntimeServicesLayer() {
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,
   );
+  const threadImportServiceLayer = ThreadImportServiceLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(ThreadImportSourceRepositoryLive),
+    Layer.provideMerge(providerSessionDirectoryLayer),
+  );
+  const threadCategorizationServiceLayer = ThreadCategorizationServiceLive.pipe(
+    Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+    Layer.provideMerge(ProjectionThreadCategorizationRepositoryLive),
+  );
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
@@ -157,6 +170,8 @@ export function makeServerRuntimeServicesLayer() {
   );
 
   return Layer.mergeAll(
+    threadImportServiceLayer,
+    threadCategorizationServiceLayer,
     orchestrationReactorLayer,
     GitCoreLive,
     gitManagerLayer,

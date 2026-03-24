@@ -27,13 +27,17 @@ import Migration0012 from "./Migrations/012_ProjectionThreadsInteractionMode.ts"
 import Migration0013 from "./Migrations/013_ProjectionThreadProposedPlans.ts";
 import Migration0014 from "./Migrations/014_ProjectionThreadProposedPlanImplementation.ts";
 import Migration0015 from "./Migrations/015_ProjectionTurnsSourceProposedPlan.ts";
+import Migration0016 from "./Migrations/016_ProjectionThreadGroups.ts";
+import Migration0017 from "./Migrations/017_ProjectionProjectMemories.ts";
 import Migration0018 from "./Migrations/018_ProjectionWorkspaces.ts";
 import Migration0019 from "./Migrations/019_ExplicitWorkspaces.ts";
 import Migration0020 from "./Migrations/020_OrchestrationThreadCreatedWorkspaceId.ts";
 import Migration0021 from "./Migrations/021_WorkspaceProjectsAndRoots.ts";
 import Migration0022 from "./Migrations/022_ThreadOwnedTaskContexts.ts";
+import Migration0023 from "./Migrations/023_ThreadImportSources.ts";
 import Migration0024 from "./Migrations/024_RepairDuplicateRootWorkspaces.ts";
 import Migration0025 from "./Migrations/025_TrimOversizedWorkspaceLayouts.ts";
+import Migration0026 from "./Migrations/026_ProjectionThreadCategorizations.ts";
 import { Effect } from "effect";
 
 /**
@@ -62,13 +66,17 @@ const loader = Migrator.fromRecord({
   "13_ProjectionThreadProposedPlans": Migration0013,
   "14_ProjectionThreadProposedPlanImplementation": Migration0014,
   "15_ProjectionTurnsSourceProposedPlan": Migration0015,
+  "16_ProjectionThreadGroups": Migration0016,
+  "17_ProjectionProjectMemories": Migration0017,
   "18_ProjectionWorkspaces": Migration0018,
   "19_ExplicitWorkspaces": Migration0019,
   "20_OrchestrationThreadCreatedWorkspaceId": Migration0020,
   "21_WorkspaceProjectsAndRoots": Migration0021,
   "22_ThreadOwnedTaskContexts": Migration0022,
+  "23_ThreadImportSources": Migration0023,
   "24_RepairDuplicateRootWorkspaces": Migration0024,
   "25_TrimOversizedWorkspaceLayouts": Migration0025,
+  "26_ProjectionThreadCategorizations": Migration0026,
 });
 
 /**

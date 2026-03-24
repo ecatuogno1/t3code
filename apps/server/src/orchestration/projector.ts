@@ -1,4 +1,10 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationProjectMemory,
+  OrchestrationReadModel,
+  ProjectMemoryId,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -12,6 +18,9 @@ import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
+  ProjectMemoryCreatedPayload,
+  ProjectMemoryDeletedPayload,
+  ProjectMemoryUpdatedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadCreatedPayload,
@@ -158,8 +167,20 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    threadGroups: [],
+    projectMemories: [],
     updatedAt: nowIso,
   };
+}
+
+function updateProjectMemory(
+  projectMemories: ReadonlyArray<OrchestrationProjectMemory>,
+  memoryId: ProjectMemoryId,
+  patch: Partial<Omit<OrchestrationProjectMemory, "id" | "projectId">>,
+): OrchestrationProjectMemory[] {
+  return projectMemories.map((memory) =>
+    memory.id === memoryId ? { ...memory, ...patch } : memory,
+  );
 }
 
 export function projectEvent(
@@ -630,6 +651,122 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    case "thread-group.created": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: [
+          ...(nextBase.threadGroups ?? []),
+          {
+            id: payload.groupId,
+            projectId: payload.projectId,
+            title: payload.title,
+            color: payload.color,
+            orderIndex: payload.orderIndex,
+            isCollapsed: false,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+          },
+        ],
+      });
+    }
+
+    case "thread-group.updated": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: (nextBase.threadGroups ?? []).map((group) => {
+          if (group.id !== payload.groupId) {
+            return group;
+          }
+          return Object.assign({}, group, {
+            ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.color !== undefined ? { color: payload.color } : {}),
+            updatedAt: payload.updatedAt,
+          });
+        }),
+      });
+    }
+
+    case "thread-group.deleted": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threadGroups: (nextBase.threadGroups ?? []).map((group) => {
+          if (group.id !== payload.groupId) {
+            return group;
+          }
+          return Object.assign({}, group, { deletedAt: payload.deletedAt });
+        }),
+        threads: nextBase.threads.map((thread) =>
+          thread.groupId === payload.groupId ? { ...thread, groupId: null } : thread,
+        ),
+      });
+    }
+
+    case "thread.group-set": {
+      const { payload } = event;
+      return Effect.succeed({
+        ...nextBase,
+        threads: updateThread(nextBase.threads, payload.threadId, {
+          groupId: payload.groupId,
+          updatedAt: payload.updatedAt,
+        }),
+      });
+    }
+
+    case "project-memory.created":
+      return decodeForEvent(ProjectMemoryCreatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const existing = nextBase.projectMemories.find((entry) => entry.id === payload.memoryId);
+          const nextMemory: OrchestrationProjectMemory = {
+            id: payload.memoryId,
+            projectId: payload.projectId,
+            title: payload.title,
+            content: payload.content,
+            kind: payload.kind,
+            tags: payload.tags,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+          };
+          return {
+            ...nextBase,
+            projectMemories: existing
+              ? nextBase.projectMemories.map((entry) =>
+                  entry.id === payload.memoryId ? nextMemory : entry,
+                )
+              : [...nextBase.projectMemories, nextMemory],
+          };
+        }),
+      );
+
+    case "project-memory.updated":
+      return decodeForEvent(ProjectMemoryUpdatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          projectMemories: updateProjectMemory(nextBase.projectMemories, payload.memoryId, {
+            ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.content !== undefined ? { content: payload.content } : {}),
+            ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
+            ...(payload.tags !== undefined ? { tags: payload.tags } : {}),
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "project-memory.deleted":
+      return decodeForEvent(ProjectMemoryDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          projectMemories: updateProjectMemory(nextBase.projectMemories, payload.memoryId, {
+            deletedAt: payload.deletedAt,
+            updatedAt: payload.deletedAt,
+          }),
+        })),
       );
 
     default:

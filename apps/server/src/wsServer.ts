@@ -87,6 +87,8 @@ import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import { WorkspaceSnapshotQuery } from "./workspace/Services/WorkspaceSnapshotQuery.ts";
 import { WorkspaceCommandService } from "./workspace/Services/WorkspaceCommandService.ts";
+import { ThreadImportService } from "./imports/Services/ThreadImportService.ts";
+import { ThreadCategorizationService } from "./threadCategorization/Services/ThreadCategorizationService.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -216,6 +218,8 @@ export type ServerCoreRuntimeServices =
   | ProjectionSnapshotQuery
   | WorkspaceSnapshotQuery
   | WorkspaceCommandService
+  | ThreadImportService
+  | ThreadCategorizationService
   | CheckpointDiffQuery
   | OrchestrationReactor
   | ProviderService
@@ -266,6 +270,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const keybindingsManager = yield* Keybindings;
   const providerHealth = yield* ProviderHealth;
   const git = yield* GitCore;
+  const threadImportService = yield* ThreadImportService;
+  const threadCategorizationService = yield* ThreadCategorizationService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -960,6 +966,21 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         const body = stripRequestTag(request.body);
         const keybindingsConfig = yield* keybindingsManager.upsertKeybindingRule(body);
         return { keybindings: keybindingsConfig, issues: [] };
+      }
+
+      case WS_METHODS.importsScan: {
+        const body = stripRequestTag(request.body);
+        return yield* threadImportService.scan(body);
+      }
+
+      case WS_METHODS.importsImportSession: {
+        const body = stripRequestTag(request.body);
+        return yield* threadImportService.importSession(body);
+      }
+
+      case WS_METHODS.threadCategorizationCategorizeProjectThreads: {
+        const body = stripRequestTag(request.body);
+        return yield* threadCategorizationService.categorizeProjectThreads(body);
       }
 
       default: {

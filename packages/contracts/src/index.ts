@@ -12,3 +12,5 @@ export * from "./orchestration";
 export * from "./workspace";
 export * from "./editor";
 export * from "./project";
+export * from "./imports";
+export * from "./threadCategorization";
