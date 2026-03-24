@@ -409,48 +409,50 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       workspaceId: rootWorkspaceId,
     });
     if (Option.isNone(existingRootWorkspace)) {
-      const workspaceRoot = projectRow.value.workspaceRoot;
-      const contextKey = buildWorkspaceContextKey({
-        source: input.source ?? "root",
-        worktreePath: input.worktreePath,
-      });
-      const title = deriveWorkspaceTitle({
-        source: input.source ?? "root",
-        worktreePath: input.worktreePath,
-        projectTitle: projectRow.value.title,
-      });
-      const newWorkspace = createDefaultWorkspaceProjection({
-        workspaceId: rootWorkspaceId,
-        projectId: input.projectId,
-        workspaceRoot,
-        worktreePath: input.worktreePath,
-        title,
-        source: input.source ?? "root",
-        contextKey,
-        parentWorkspaceId: null,
-        rootWorkspaceId,
-        originRepoKey: `repo:${input.projectId}`,
-        createdAt: input.createdAt,
-        updatedAt: input.updatedAt,
-      });
+      const source = "root";
       yield* projectionWorkspaceRepository.upsert(
-        ensureWorkspaceHasThreadPane({
-          workspace: newWorkspace,
+        createDefaultWorkspaceProjection({
+          workspaceId: rootWorkspaceId,
+          projectId: input.projectId,
+          title: deriveWorkspaceTitle({
+            projectTitle: projectRow.value.title,
+            workspaceRoot: projectRow.value.workspaceRoot,
+            source,
+            worktreePath: null,
+          }),
+          source,
+          contextKey: buildWorkspaceContextKey({
+            source,
+            worktreePath: null,
+          }),
+          parentWorkspaceId: null,
+          rootWorkspaceId,
+          originRepoKey: `repo:${input.projectId}`,
+          workspaceRoot: projectRow.value.workspaceRoot,
+          worktreePath: null,
           threadId: input.threadId,
           threadTitle: input.threadTitle,
+          createdAt: input.createdAt,
           updatedAt: input.updatedAt,
         }),
       );
-    } else {
-      yield* projectionWorkspaceRepository.upsert(
-        ensureWorkspaceHasThreadPane({
-          workspace: existingRootWorkspace.value,
-          threadId: input.threadId,
-          threadTitle: input.threadTitle,
-          updatedAt: input.updatedAt,
-        }),
-      );
+      return rootWorkspaceId;
     }
+
+    yield* projectionWorkspaceRepository.upsert({
+      ...ensureWorkspaceHasThreadPane({
+        workspace: {
+          ...existingRootWorkspace.value,
+          workspaceRoot: projectRow.value.workspaceRoot,
+          worktreePath: null,
+          projectId: input.projectId,
+        },
+        threadId: input.threadId,
+        threadTitle: input.threadTitle,
+        updatedAt: input.updatedAt,
+      }),
+      deletedAt: null,
+    });
 
     return rootWorkspaceId;
   });
@@ -490,6 +492,21 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
             updatedAt: event.payload.updatedAt,
           });
+          const workspaceRows = yield* projectionWorkspaceRepository.listByProjectId({
+            projectId: event.payload.projectId,
+          });
+          yield* Effect.forEach(
+            workspaceRows,
+            (workspaceRow) =>
+              projectionWorkspaceRepository.upsert({
+                ...workspaceRow,
+                ...(event.payload.workspaceRoot !== undefined
+                  ? { workspaceRoot: event.payload.workspaceRoot }
+                  : {}),
+                updatedAt: event.payload.updatedAt,
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
           return;
         }
 
@@ -505,6 +522,19 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             deletedAt: event.payload.deletedAt,
             updatedAt: event.payload.deletedAt,
           });
+          const workspaceRows = yield* projectionWorkspaceRepository.listByProjectId({
+            projectId: event.payload.projectId,
+          });
+          yield* Effect.forEach(
+            workspaceRows,
+            (workspaceRow) =>
+              projectionWorkspaceRepository.upsert({
+                ...workspaceRow,
+                deletedAt: event.payload.deletedAt,
+                updatedAt: event.payload.deletedAt,
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
           return;
         }
 
@@ -517,19 +547,20 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     Effect.gen(function* () {
       switch (event.type) {
         case "thread.created": {
-          const resolvedWorkspaceId = yield* ensureWorkspaceProjectionForThread({
+          const workspaceId = yield* ensureWorkspaceProjectionForThread({
             workspaceId: event.payload.workspaceId,
             projectId: event.payload.projectId,
             threadId: event.payload.threadId,
             threadTitle: event.payload.title,
             worktreePath: event.payload.worktreePath,
+            source: event.payload.worktreePath ? "worktree" : "root",
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
-            workspaceId: resolvedWorkspaceId,
+            workspaceId,
             workspaceProjectId: event.payload.workspaceProjectId ?? null,
             title: event.payload.title,
             model: event.payload.model,
@@ -555,6 +586,16 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (Option.isNone(existingRow)) {
             return;
           }
+          const nextTitle = event.payload.title ?? existingRow.value.title;
+          yield* ensureWorkspaceProjectionForThread({
+            workspaceId: existingRow.value.workspaceId,
+            projectId: existingRow.value.projectId,
+            threadId: existingRow.value.threadId,
+            threadTitle: nextTitle,
+            worktreePath: existingRow.value.worktreePath,
+            createdAt: existingRow.value.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),

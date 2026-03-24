@@ -17,6 +17,7 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openInPreferredEditor } from "../editorPreferences";
+import { useWorkspaceFileNavigation } from "../hooks/useWorkspaceFileNavigation";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
@@ -237,13 +238,29 @@ function SuspenseShikiCodeBlock({
 
 function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
+  const { openBrowserContextUrl, openFileTarget } = useWorkspaceFileNavigation();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
         const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
         if (!targetPath) {
-          return <a {...props} href={href} target="_blank" rel="noreferrer" />;
+          return (
+            <a
+              {...props}
+              href={href}
+              onClick={(event) => {
+                if (!href?.includes("/pull/")) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                void openBrowserContextUrl(href);
+              }}
+              target="_blank"
+              rel="noreferrer"
+            />
+          );
         }
 
         return (
@@ -254,11 +271,16 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
               event.preventDefault();
               event.stopPropagation();
               const api = readNativeApi();
-              if (api) {
-                void openInPreferredEditor(api, targetPath);
-              } else {
+              if (!api) {
                 console.warn("Native API not found. Unable to open file in editor.");
+                return;
               }
+              void openFileTarget(targetPath).then((opened) => {
+                if (opened) {
+                  return;
+                }
+                return openInPreferredEditor(api, targetPath);
+              });
             }}
           />
         );
@@ -285,7 +307,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming],
+    [cwd, diffThemeName, isStreaming, openBrowserContextUrl, openFileTarget],
   );
 
   return (

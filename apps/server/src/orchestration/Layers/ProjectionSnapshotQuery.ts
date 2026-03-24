@@ -661,6 +661,35 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             });
           }
 
+          // Query thread groups separately
+          const threadGroupRows: ReadonlyArray<Record<string, unknown>> = yield* sql`
+              SELECT
+                group_id AS "groupId",
+                project_id AS "projectId",
+                title,
+                color,
+                order_index AS "orderIndex",
+                CASE WHEN is_collapsed = 1 THEN 1 ELSE 0 END AS "isCollapsed",
+                created_at AS "createdAt",
+                updated_at AS "updatedAt",
+                deleted_at AS "deletedAt"
+              FROM projection_thread_groups
+              WHERE deleted_at IS NULL
+              ORDER BY order_index ASC, created_at ASC
+            `.pipe(Effect.catch(() => Effect.succeed([])));
+
+          const threadGroups = threadGroupRows.map((row) => ({
+            id: row.groupId as string,
+            projectId: row.projectId as string,
+            title: row.title as string,
+            color: row.color as string,
+            orderIndex: (row.orderIndex as number) ?? 0,
+            isCollapsed: Boolean(row.isCollapsed),
+            createdAt: row.createdAt as string,
+            updatedAt: row.updatedAt as string,
+            deletedAt: (row.deletedAt as string) ?? null,
+          }));
+
           const projects: Array<OrchestrationProject> = projectRows.map((row) => ({
             id: row.projectId,
             title: row.title,
@@ -737,35 +766,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activities: activitiesByThread.get(row.threadId) ?? [],
             checkpoints: checkpointsByThread.get(row.threadId) ?? [],
             session: sessionsByThread.get(row.threadId) ?? null,
-          }));
-
-          // Query thread groups separately
-          const threadGroupRows: ReadonlyArray<Record<string, unknown>> = yield* sql`
-              SELECT
-                group_id AS "groupId",
-                project_id AS "projectId",
-                title,
-                color,
-                order_index AS "orderIndex",
-                CASE WHEN is_collapsed = 1 THEN 1 ELSE 0 END AS "isCollapsed",
-                created_at AS "createdAt",
-                updated_at AS "updatedAt",
-                deleted_at AS "deletedAt"
-              FROM projection_thread_groups
-              WHERE deleted_at IS NULL
-              ORDER BY order_index ASC, created_at ASC
-            `.pipe(Effect.catch(() => Effect.succeed([])));
-
-          const threadGroups = threadGroupRows.map((row) => ({
-            id: row.groupId as string,
-            projectId: row.projectId as string,
-            title: row.title as string,
-            color: row.color as string,
-            orderIndex: (row.orderIndex as number) ?? 0,
-            isCollapsed: Boolean(row.isCollapsed),
-            createdAt: row.createdAt as string,
-            updatedAt: row.updatedAt as string,
-            deletedAt: (row.deletedAt as string) ?? null,
           }));
 
           const projectMemories: Array<OrchestrationProjectMemory> = projectMemoryRows.map(

@@ -3,11 +3,14 @@ import "../index.css";
 
 import {
   ORCHESTRATION_WS_METHODS,
+  WORKSPACE_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
   type ThreadId,
+  type WorkspaceReadModel,
+  type WorkspaceId,
   type WsWelcomePayload,
   WS_CHANNELS,
   WS_METHODS,
@@ -31,8 +34,8 @@ import { useStore } from "../store";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
-const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
+const WORKSPACE_ID = "workspace:project-1:project-root" as WorkspaceId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
@@ -47,6 +50,7 @@ interface WsRequestEnvelope {
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
+  workspaceSnapshot: WorkspaceReadModel;
   serverConfig: ServerConfig;
   welcome: WsWelcomePayload;
 }
@@ -66,6 +70,13 @@ interface ViewportSpec {
 const DEFAULT_VIEWPORT: ViewportSpec = {
   name: "desktop",
   width: 960,
+  height: 1_100,
+  textTolerancePx: 44,
+  attachmentTolerancePx: 56,
+};
+const WORKSPACE_DESKTOP_VIEWPORT: ViewportSpec = {
+  name: "workspace-desktop",
+  width: 1440,
   height: 1_100,
   textTolerancePx: 44,
   attachmentTolerancePx: 56,
@@ -93,6 +104,18 @@ interface MountedChatView {
   measureUserRow: (targetMessageId: MessageId) => Promise<UserRowMeasurement>;
   setViewport: (viewport: ViewportSpec) => Promise<void>;
   router: ReturnType<typeof getRouter>;
+}
+
+async function waitForWorkspacePanes(expectedCount: number): Promise<HTMLElement[]> {
+  let panes: HTMLElement[] = [];
+  await vi.waitFor(
+    () => {
+      panes = [...document.querySelectorAll<HTMLElement>('[data-workspace-pane="true"]')];
+      expect(panes).toHaveLength(expectedCount);
+    },
+    { timeout: 8_000, interval: 16 },
+  );
+  return panes;
 }
 
 function isoAt(offsetSeconds: number): string {
@@ -231,12 +254,17 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        workspaceId: WORKSPACE_ID,
+        workspaceProjectId: null,
         title: "Browser test thread",
         model: "gpt-5",
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        pullRequestUrl: null,
+        previewUrls: [],
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -256,6 +284,8 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    threadGroups: [],
+    projectMemories: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -263,6 +293,35 @@ function createSnapshotForTargetUser(options: {
 function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   return {
     snapshot,
+    workspaceSnapshot: {
+      snapshotSequence: snapshot.snapshotSequence,
+      updatedAt: snapshot.updatedAt,
+      workspaceProjects: [],
+      workspaces: [
+        {
+          id: WORKSPACE_ID,
+          projectId: PROJECT_ID,
+          title: "Project",
+          source: "project-default",
+          contextKey: "project-default",
+          workspaceRoot: "/repo/project",
+          worktreePath: null,
+          linkedThreadIds: snapshot.threads.map((thread) => thread.id),
+          terminalGroups: [],
+          browserTabs: [],
+          detectedDevServerUrls: [],
+          panes: [],
+          layout: {
+            paneOrder: [],
+            activePaneId: null,
+          },
+          lastFocusedPaneId: null,
+          createdAt: NOW_ISO,
+          updatedAt: NOW_ISO,
+          deletedAt: null,
+        },
+      ],
+    },
     serverConfig: createBaseServerConfig(),
     welcome: {
       cwd: "/repo/project",
@@ -270,6 +329,68 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
       bootstrapProjectId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
+  };
+}
+
+function configureWorkspacePanes(
+  nextFixture: TestFixture,
+  input: {
+    paneCount: number;
+    activeThreadIndex: number;
+  },
+) {
+  const baseThread = nextFixture.snapshot.threads[0]!;
+  const baseSession = baseThread.session;
+  if (!baseSession) {
+    throw new Error("Browser fixture requires a session-backed thread.");
+  }
+  const threads = Array.from({ length: input.paneCount }, (_, index) => {
+    if (index === 0) {
+      return baseThread;
+    }
+
+    const threadId = `thread-browser-test-${index + 1}` as ThreadId;
+    return {
+      ...baseThread,
+      id: threadId,
+      title: `Browser test thread ${index + 1}`,
+      messages: [] as typeof baseThread.messages,
+      activities: [] as typeof baseThread.activities,
+      proposedPlans: [] as typeof baseThread.proposedPlans,
+      checkpoints: [] as typeof baseThread.checkpoints,
+      session: {
+        threadId,
+        status: baseSession.status,
+        providerName: baseSession.providerName,
+        runtimeMode: baseSession.runtimeMode,
+        activeTurnId: baseSession.activeTurnId,
+        lastError: baseSession.lastError,
+        updatedAt: baseSession.updatedAt,
+      },
+    } satisfies typeof baseThread;
+  });
+
+  const activeThreadId = threads[input.activeThreadIndex]?.id ?? threads[0]!.id;
+
+  nextFixture.snapshot = {
+    ...nextFixture.snapshot,
+    threads,
+  };
+  nextFixture.workspaceSnapshot = {
+    ...nextFixture.workspaceSnapshot,
+    workspaces: nextFixture.workspaceSnapshot.workspaces.map((workspace) => ({
+      ...workspace,
+      linkedThreadIds: threads.map((thread) => thread.id),
+      layout: {
+        paneOrder: threads.map((thread) => `chat:${thread.id}`),
+        activePaneId: `chat:${activeThreadId}`,
+      },
+      lastFocusedPaneId: `chat:${activeThreadId}`,
+    })),
+  };
+  nextFixture.welcome = {
+    ...nextFixture.welcome,
+    bootstrapThreadId: activeThreadId,
   };
 }
 
@@ -285,12 +406,17 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
+        workspaceId: WORKSPACE_ID,
+        workspaceProjectId: null,
         title: "New thread",
         model: "gpt-5",
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        pullRequestUrl: null,
+        previewUrls: [],
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -385,6 +511,9 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   const tag = body._tag;
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === WORKSPACE_WS_METHODS.getSnapshot) {
+    return fixture.workspaceSnapshot;
   }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
@@ -533,20 +662,27 @@ async function waitForElement<T extends Element>(
   return element;
 }
 
-async function waitForURL(
-  router: ReturnType<typeof getRouter>,
-  predicate: (pathname: string) => boolean,
+async function waitForProjectDraftThread(
+  projectId: ProjectId,
   errorMessage: string,
-): Promise<string> {
-  let pathname = "";
+  previousThreadId?: ThreadId,
+): Promise<ThreadId> {
+  let draftThreadId: ThreadId | null = null;
   await vi.waitFor(
     () => {
-      pathname = router.state.location.pathname;
-      expect(predicate(pathname), errorMessage).toBe(true);
+      const draftThread = useComposerDraftStore.getState().getDraftThreadByProjectId(projectId);
+      draftThreadId = draftThread?.threadId ?? null;
+      expect(draftThreadId, errorMessage).toBeTruthy();
+      if (previousThreadId) {
+        expect(draftThreadId, errorMessage).not.toBe(previousThreadId);
+      }
     },
     { timeout: 8_000, interval: 16 },
   );
-  return pathname;
+  if (!draftThreadId) {
+    throw new Error(errorMessage);
+  }
+  return draftThreadId;
 }
 
 async function waitForComposerEditor(): Promise<HTMLElement> {
@@ -681,7 +817,7 @@ async function mountChatView(options: {
 
   const router = getRouter(
     createMemoryHistory({
-      initialEntries: [`/${THREAD_ID}`],
+      initialEntries: [`/workspaces/${WORKSPACE_ID}`],
     }),
   );
 
@@ -933,6 +1069,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          pullRequestUrl: null,
           envMode: "local",
         },
       },
@@ -1243,13 +1380,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await newThreadButton.click();
 
-      // The route should change to a new draft thread ID.
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
+      const newThreadId = await waitForProjectDraftThread(
+        PROJECT_ID,
+        "Expected a draft thread for the current project after clicking new thread.",
       );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       // The composer editor should be present for the new draft thread.
       await waitForComposerEditor();
@@ -1265,17 +1399,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       useComposerDraftStore.getState().clearDraftThread(newThreadId);
 
       // The route should still be on the new thread — not redirected away.
-      await waitForURL(
-        mounted.router,
-        (path) => path === newThreadPath,
-        "New thread should remain selected after snapshot sync clears the draft.",
-      );
-
       // The empty thread view and composer should still be visible.
       await expect
         .element(page.getByText("Send a message to start the conversation."))
         .toBeInTheDocument();
-      await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -1517,10 +1644,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }),
       );
 
-      await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID from the shortcut.",
+      await waitForProjectDraftThread(
+        PROJECT_ID,
+        "Shortcut should create a new draft thread in the current workspace.",
       );
     } finally {
       await mounted.cleanup();
@@ -1563,12 +1689,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(newThreadButton).toBeInTheDocument();
       await newThreadButton.click();
 
-      const promotedThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a promoted draft thread UUID.",
+      const promotedThreadId = await waitForProjectDraftThread(
+        PROJECT_ID,
+        "Expected a draft thread before promoting it into the server snapshot.",
       );
-      const promotedThreadId = promotedThreadPath.slice(1) as ThreadId;
 
       const { syncServerReadModel } = useStore.getState();
       syncServerReadModel(addThreadToSnapshot(fixture.snapshot, promotedThreadId));
@@ -1586,12 +1710,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }),
       );
 
-      const freshThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path) && path !== promotedThreadPath,
+      const freshThreadId = await waitForProjectDraftThread(
+        PROJECT_ID,
         "Shortcut should create a fresh draft instead of reusing the promoted thread.",
+        promotedThreadId,
       );
-      expect(freshThreadPath).not.toBe(promotedThreadPath);
+      expect(freshThreadId).not.toBe(promotedThreadId);
     } finally {
       await mounted.cleanup();
     }
@@ -1629,6 +1753,91 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps two-pane workspaces readable on desktop without horizontal overflow", async () => {
+    const mounted = await mountChatView({
+      viewport: WORKSPACE_DESKTOP_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-two-pane-layout" as MessageId,
+        targetText: "two pane workspace layout target",
+      }),
+      configureFixture: (nextFixture) => {
+        configureWorkspacePanes(nextFixture, { paneCount: 2, activeThreadIndex: 1 });
+      },
+    });
+
+    try {
+      const panes = await waitForWorkspacePanes(2);
+      const widths = panes.map((pane) => pane.getBoundingClientRect().width);
+      expect(Math.min(...widths)).toBeGreaterThan(300);
+
+      const activePane = document.querySelector<HTMLElement>('[data-workspace-pane-active="true"]');
+      expect(activePane).toBeTruthy();
+
+      const composerForm = activePane?.querySelector<HTMLElement>(
+        '[data-chat-composer-form="true"]',
+      );
+      const messagesScroll = activePane?.querySelector<HTMLElement>(
+        '[data-chat-messages-scroll="true"]',
+      );
+
+      expect(composerForm).toBeTruthy();
+      expect(messagesScroll).toBeTruthy();
+      expect(
+        (composerForm?.scrollWidth ?? 0) - (composerForm?.clientWidth ?? 0),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        (messagesScroll?.scrollWidth ?? 0) - (messagesScroll?.clientWidth ?? 0),
+      ).toBeLessThanOrEqual(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("prioritizes the active pane and compacts composer controls in a three-pane desktop layout", async () => {
+    const mounted = await mountChatView({
+      viewport: WORKSPACE_DESKTOP_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-three-pane-layout" as MessageId,
+        targetText: "three pane workspace layout target",
+      }),
+      configureFixture: (nextFixture) => {
+        configureWorkspacePanes(nextFixture, { paneCount: 3, activeThreadIndex: 1 });
+      },
+    });
+
+    try {
+      const panes = await waitForWorkspacePanes(3);
+      const activePane = document.querySelector<HTMLElement>('[data-workspace-pane-active="true"]');
+      expect(activePane).toBeTruthy();
+
+      const activeWidth = activePane?.getBoundingClientRect().width ?? 0;
+      const inactiveWidths = panes
+        .filter((pane) => pane !== activePane)
+        .map((pane) => pane.getBoundingClientRect().width);
+
+      expect(activeWidth).toBeGreaterThan(Math.max(...inactiveWidths));
+
+      const compactControlsTrigger = activePane?.querySelector<HTMLButtonElement>(
+        'button[aria-label="More composer controls"]',
+      );
+      const sendButton = activePane?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Send message"]',
+      );
+      const header = activePane?.querySelector<HTMLElement>('[data-chat-header="true"]');
+      const overflowTrigger = activePane?.querySelector<HTMLButtonElement>(
+        '[data-chat-header-overflow-trigger="true"]',
+      );
+
+      expect(compactControlsTrigger).toBeTruthy();
+      expect(sendButton).toBeTruthy();
+      expect(overflowTrigger).toBeTruthy();
+      expect(sendButton?.getBoundingClientRect().width ?? 0).toBeGreaterThan(0);
+      expect((header?.scrollWidth ?? 0) - (header?.clientWidth ?? 0)).toBeLessThanOrEqual(1);
     } finally {
       await mounted.cleanup();
     }

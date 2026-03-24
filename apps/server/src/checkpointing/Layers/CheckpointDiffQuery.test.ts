@@ -4,6 +4,7 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  WorkspaceId,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Effect, Layer } from "effect";
@@ -42,12 +43,17 @@ function makeSnapshot(input: {
       {
         id: input.threadId,
         projectId: input.projectId,
+        workspaceId: WorkspaceId.makeUnsafe(
+          `workspace:${input.projectId}:${input.worktreePath ?? "project-root"}`,
+        ),
+        workspaceProjectId: null,
         title: "Thread",
         model: "gpt-5-codex",
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "full-access",
         branch: null,
         worktreePath: input.worktreePath,
+        groupId: null,
         latestTurn: {
           turnId: TurnId.makeUnsafe("turn-1"),
           state: "completed",
@@ -76,6 +82,8 @@ function makeSnapshot(input: {
         session: null,
       },
     ],
+    threadGroups: [],
+    projectMemories: [],
   };
 }
 
@@ -175,6 +183,8 @@ describe("CheckpointDiffQueryLive", () => {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              threadGroups: [],
+              projectMemories: [],
               updatedAt: "2026-01-01T00:00:00.000Z",
             } satisfies OrchestrationReadModel),
         }),

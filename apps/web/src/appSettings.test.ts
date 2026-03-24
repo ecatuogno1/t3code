@@ -86,10 +86,12 @@ describe("resolveAppModelSelection", () => {
   });
 
   it("resolves display names through the shared resolver", () => {
+    // Our implementation finds by name match and returns the slug
     expect(resolveAppModelSelection("codex", { codex: [], claudeAgent: [] }, "GPT-5.3 Codex")).toBe(
       "gpt-5.3-codex",
     );
   });
+
 
   it("resolves aliases through the shared resolver", () => {
     expect(resolveAppModelSelection("claudeAgent", { codex: [], claudeAgent: [] }, "sonnet")).toBe(

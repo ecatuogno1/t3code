@@ -34,6 +34,21 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.providerOptions?.codex?.homePath).toBe("/tmp/.codex");
   });
 
+  it("accepts Claude-compatible provider options", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "claudeAgent",
+      runtimeMode: "full-access",
+      providerOptions: {
+        claudeAgent: {
+          binaryPath: "/opt/homebrew/bin/claude",
+        },
+      },
+    });
+
+    expect(parsed.providerOptions?.claudeAgent?.binaryPath).toBe("/opt/homebrew/bin/claude");
+  });
+
   it("rejects payloads without runtime mode", () => {
     expect(() =>
       decodeProviderSessionStartInput({

@@ -739,6 +739,7 @@ describe("WebSocket Server", () => {
           model: "gpt-5-codex",
           branch: null,
           worktreePath: null,
+          groupId: null,
         }),
       ]),
     );
@@ -1209,6 +1210,7 @@ describe("WebSocket Server", () => {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      groupId: null,
       createdAt,
     });
     expect(createThreadResponse.error).toBeUndefined();
@@ -1288,6 +1290,7 @@ describe("WebSocket Server", () => {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      groupId: null,
       createdAt,
     });
     expect(createThreadResponse.error).toBeUndefined();

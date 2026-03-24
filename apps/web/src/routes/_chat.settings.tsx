@@ -3,15 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { type ProviderKind, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
-import {
-  getAppModelOptions,
-  getCustomModelsForProvider,
-  getDefaultCustomModelsForProvider,
-  MAX_CUSTOM_MODEL_LENGTH,
-  MODEL_PROVIDER_SETTINGS,
-  patchCustomModels,
-  useAppSettings,
-} from "../appSettings";
+import { getAppModelOptions, MAX_CUSTOM_MODEL_LENGTH, useAppSettings } from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
@@ -48,11 +40,57 @@ const THEME_OPTIONS = [
   },
 ] as const;
 
+const MODEL_PROVIDER_SETTINGS: Array<{
+  provider: ProviderKind;
+  title: string;
+  description: string;
+  placeholder: string;
+  example: string;
+}> = [
+  {
+    provider: "codex",
+    title: "Codex",
+    description: "Save additional Codex model slugs for the picker and `/model` command.",
+    placeholder: "your-codex-model-slug",
+    example: "gpt-6.7-codex-ultra-preview",
+  },
+] as const;
+
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+function getCustomModelsForProvider(
+  settings: ReturnType<typeof useAppSettings>["settings"],
+  provider: ProviderKind,
+) {
+  switch (provider) {
+    case "codex":
+    default:
+      return settings.customCodexModels;
+  }
+}
+
+function getDefaultCustomModelsForProvider(
+  defaults: ReturnType<typeof useAppSettings>["defaults"],
+  provider: ProviderKind,
+) {
+  switch (provider) {
+    case "codex":
+    default:
+      return defaults.customCodexModels;
+  }
+}
+
+function patchCustomModels(provider: ProviderKind, models: string[]) {
+  switch (provider) {
+    case "codex":
+    default:
+      return { customCodexModels: models };
+  }
+}
 
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -85,6 +123,11 @@ function SettingsRouteView() {
       (option) =>
         option.slug === (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
     )?.name ?? settings.textGenerationModel;
+  const selectedThreadCategorizationModelLabel =
+    gitTextGenerationModelOptions.find(
+      (option) =>
+        option.slug === (settings.threadCategorizationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL),
+    )?.name ?? settings.threadCategorizationModel;
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
@@ -539,9 +582,58 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Threads</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Choose the default workspace mode for newly created draft threads.
+                  Choose how thread categories and new draft threads behave.
                 </p>
               </div>
+
+              <div className="mb-4 flex flex-col gap-4 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">Topic categorization model</p>
+                  <p className="text-xs text-muted-foreground">
+                    Used to auto-generate topic buckets for repo and child workspace thread views.
+                  </p>
+                </div>
+                <Select
+                  value={settings.threadCategorizationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL}
+                  onValueChange={(value) => {
+                    if (value) {
+                      updateSettings({
+                        threadCategorizationModel: value,
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className="w-full shrink-0 sm:w-56"
+                    aria-label="Thread categorization model"
+                  >
+                    <SelectValue>{selectedThreadCategorizationModelLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end">
+                    {gitTextGenerationModelOptions.map((option) => (
+                      <SelectItem key={option.slug} value={option.slug}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
+
+              {settings.threadCategorizationModel !== defaults.threadCategorizationModel ? (
+                <div className="mb-3 flex justify-end">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        threadCategorizationModel: defaults.threadCategorizationModel,
+                      })
+                    }
+                  >
+                    Restore topic model default
+                  </Button>
+                </div>
+              ) : null}
 
               <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
                 <div>

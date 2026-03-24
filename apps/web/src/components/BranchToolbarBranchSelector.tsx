@@ -1,12 +1,13 @@
 import type { GitBranch } from "@t3tools/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
   useDeferredValue,
   useEffect,
+  useId,
   useMemo,
   useOptimistic,
   useRef,
@@ -39,6 +40,16 @@ import {
   ComboboxPopup,
   ComboboxTrigger,
 } from "./ui/combobox";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 import { toastManager } from "./ui/toast";
 
 interface BranchToolbarBranchSelectorProps {
@@ -85,8 +96,11 @@ export function BranchToolbarBranchSelector({
 }: BranchToolbarBranchSelectorProps) {
   const queryClient = useQueryClient();
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
+  const [isCreateBranchDialogOpen, setIsCreateBranchDialogOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
+  const [newBranchName, setNewBranchName] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
+  const newBranchNameInputId = useId();
 
   const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd));
   const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd));
@@ -146,13 +160,85 @@ export function BranchToolbarBranchSelector({
   );
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
   const shouldVirtualizeBranchList = filteredBranchPickerItems.length > 40;
+  const trimmedNewBranchName = newBranchName.trim();
+  const hasExactNewBranchNameMatch = branchByName.has(trimmedNewBranchName);
+  const canSubmitNewBranch =
+    trimmedNewBranchName.length > 0 && !hasExactNewBranchNameMatch && !isBranchActionPending;
 
-  const runBranchAction = (action: () => Promise<void>) => {
-    startBranchActionTransition(async () => {
-      await action().catch(() => undefined);
-      await invalidateGitQueries(queryClient).catch(() => undefined);
-    });
-  };
+  const runBranchAction = useCallback(
+    (action: () => Promise<void>) => {
+      startBranchActionTransition(async () => {
+        await action().catch(() => undefined);
+        await invalidateGitQueries(queryClient).catch(() => undefined);
+      });
+    },
+    [queryClient],
+  );
+
+  const resetCreateBranchUi = useCallback(() => {
+    setNewBranchName("");
+    setIsCreateBranchDialogOpen(false);
+  }, []);
+
+  const createAndCheckoutBranch = useCallback(
+    (rawName: string) => {
+      const name = rawName.trim();
+      const api = readNativeApi();
+      if (!api || !branchCwd || !name || isBranchActionPending || branchByName.has(name)) return;
+
+      setIsBranchMenuOpen(false);
+
+      runBranchAction(async () => {
+        setOptimisticBranch(name);
+
+        try {
+          await api.git.createBranch({ cwd: branchCwd, branch: name });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to create branch.",
+            description: toBranchActionErrorMessage(error),
+          });
+          return;
+        }
+
+        try {
+          await api.git.checkout({ cwd: branchCwd, branch: name });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to checkout branch.",
+            description: toBranchActionErrorMessage(error),
+          });
+          return;
+        }
+
+        setOptimisticBranch(name);
+        onSetThreadBranch(name, activeWorktreePath);
+        setBranchQuery("");
+        resetCreateBranchUi();
+        onComposerFocusRequest?.();
+      });
+    },
+    [
+      activeWorktreePath,
+      branchByName,
+      branchCwd,
+      isBranchActionPending,
+      onComposerFocusRequest,
+      onSetThreadBranch,
+      resetCreateBranchUi,
+      runBranchAction,
+      setOptimisticBranch,
+    ],
+  );
+
+  const openCreateBranchDialog = useCallback(() => {
+    if (isSelectingWorktreeBase || isBranchActionPending) return;
+    setNewBranchName(trimmedBranchQuery);
+    setIsBranchMenuOpen(false);
+    setIsCreateBranchDialogOpen(true);
+  }, [isBranchActionPending, isSelectingWorktreeBase, trimmedBranchQuery]);
 
   const selectBranch = (branch: GitBranch) => {
     const api = readNativeApi();
@@ -211,44 +297,6 @@ export function BranchToolbarBranchSelector({
 
       setOptimisticBranch(nextBranchName);
       onSetThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
-    });
-  };
-
-  const createBranch = (rawName: string) => {
-    const name = rawName.trim();
-    const api = readNativeApi();
-    if (!api || !branchCwd || !name || isBranchActionPending) return;
-
-    setIsBranchMenuOpen(false);
-    onComposerFocusRequest?.();
-
-    runBranchAction(async () => {
-      setOptimisticBranch(name);
-
-      try {
-        await api.git.createBranch({ cwd: branchCwd, branch: name });
-        try {
-          await api.git.checkout({ cwd: branchCwd, branch: name });
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to checkout branch.",
-            description: toBranchActionErrorMessage(error),
-          });
-          return;
-        }
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Failed to create branch.",
-          description: toBranchActionErrorMessage(error),
-        });
-        return;
-      }
-
-      setOptimisticBranch(name);
-      onSetThreadBranch(name, activeWorktreePath);
-      setBranchQuery("");
     });
   };
 
@@ -361,7 +409,7 @@ export function BranchToolbarBranchSelector({
           index={index}
           value={itemValue}
           style={style}
-          onClick={() => createBranch(trimmedBranchQuery)}
+          onClick={() => createAndCheckoutBranch(trimmedBranchQuery)}
         >
           <span className="truncate">Create new branch "{trimmedBranchQuery}"</span>
         </ComboboxItem>
@@ -422,6 +470,20 @@ export function BranchToolbarBranchSelector({
         <ChevronDownIcon />
       </ComboboxTrigger>
       <ComboboxPopup align="end" side="top" className="w-80">
+        {!isSelectingWorktreeBase ? (
+          <div className="border-b px-1 py-1">
+            <Button
+              variant="ghost"
+              size="xs"
+              className="w-full justify-start"
+              disabled={isBranchActionPending}
+              onClick={openCreateBranchDialog}
+            >
+              <PlusIcon />
+              Add branch
+            </Button>
+          </div>
+        ) : null}
         <div className="border-b p-1">
           <ComboboxInput
             className="[&_input]:font-sans rounded-md"
@@ -460,6 +522,61 @@ export function BranchToolbarBranchSelector({
           )}
         </ComboboxList>
       </ComboboxPopup>
+      <Dialog
+        open={isCreateBranchDialogOpen}
+        onOpenChange={(open) => {
+          if (!isBranchActionPending) {
+            if (!open) {
+              resetCreateBranchUi();
+              return;
+            }
+            setIsCreateBranchDialogOpen(true);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add branch</DialogTitle>
+            <DialogDescription>Create a new branch and switch this thread to it.</DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <label htmlFor={newBranchNameInputId} className="grid gap-1.5">
+              <span className="text-xs font-medium text-foreground">Branch name</span>
+              <Input
+                id={newBranchNameInputId}
+                value={newBranchName}
+                onChange={(event) => setNewBranchName(event.target.value)}
+                placeholder="feature/my-change"
+                spellCheck={false}
+                autoFocus
+                disabled={isBranchActionPending}
+              />
+            </label>
+            {trimmedNewBranchName.length > 0 && hasExactNewBranchNameMatch ? (
+              <p className="text-muted-foreground text-xs">
+                A branch with this name already exists.
+              </p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBranchActionPending}
+              onClick={resetCreateBranchUi}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canSubmitNewBranch}
+              onClick={() => createAndCheckoutBranch(newBranchName)}
+            >
+              {isBranchActionPending ? "Creating..." : "Create branch"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </Combobox>
   );
 }

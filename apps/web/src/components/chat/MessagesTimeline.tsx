@@ -36,6 +36,7 @@ import {
 import { Button } from "../ui/button";
 import { clamp } from "effect/Number";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
+import { useWorkspaceFileNavigation } from "../../hooks/useWorkspaceFileNavigation";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -857,6 +858,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
 }) {
   const { workEntry } = props;
+  const { openRelativeFile } = useWorkspaceFileNavigation();
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
@@ -892,13 +894,17 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       {hasChangedFiles && !previewIsChangedFiles && (
         <div className="mt-1 flex flex-wrap gap-1 pl-6">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
-            <span
+            <button
               key={`${workEntry.id}:${filePath}`}
-              className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75"
+              type="button"
+              className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75 transition-colors hover:bg-accent/70 hover:text-foreground"
               title={filePath}
+              onClick={() => {
+                void openRelativeFile(filePath);
+              }}
             >
               {filePath}
-            </span>
+            </button>
           ))}
           {(workEntry.changedFiles?.length ?? 0) > 4 && (
             <span className="px-1 text-[10px] text-muted-foreground/55">

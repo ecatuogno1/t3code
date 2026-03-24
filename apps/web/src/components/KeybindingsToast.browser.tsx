@@ -2,11 +2,14 @@ import "../index.css";
 
 import {
   ORCHESTRATION_WS_METHODS,
+  WORKSPACE_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
   type ThreadId,
+  type WorkspaceReadModel,
+  type WorkspaceId,
   type WsWelcomePayload,
   WS_CHANNELS,
   WS_METHODS,
@@ -23,10 +26,12 @@ import { useStore } from "../store";
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;
 const PROJECT_ID = "project-1" as ProjectId;
+const WORKSPACE_ID = "workspace:project-1:project-root" as WorkspaceId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
+  workspaceSnapshot: WorkspaceReadModel;
   serverConfig: ServerConfig;
   welcome: WsWelcomePayload;
 }
@@ -75,12 +80,17 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        workspaceId: WORKSPACE_ID,
+        workspaceProjectId: null,
         title: "Test thread",
         model: "gpt-5",
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        pullRequestUrl: null,
+        previewUrls: [],
+        groupId: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -110,6 +120,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    threadGroups: [],
+    projectMemories: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -117,6 +129,35 @@ function createMinimalSnapshot(): OrchestrationReadModel {
 function buildFixture(): TestFixture {
   return {
     snapshot: createMinimalSnapshot(),
+    workspaceSnapshot: {
+      snapshotSequence: 1,
+      updatedAt: NOW_ISO,
+      workspaceProjects: [],
+      workspaces: [
+        {
+          id: WORKSPACE_ID,
+          projectId: PROJECT_ID,
+          title: "Project",
+          source: "project-default",
+          contextKey: "project-default",
+          workspaceRoot: "/repo/project",
+          worktreePath: null,
+          linkedThreadIds: [THREAD_ID],
+          terminalGroups: [],
+          browserTabs: [],
+          detectedDevServerUrls: [],
+          panes: [],
+          layout: {
+            paneOrder: [],
+            activePaneId: null,
+          },
+          lastFocusedPaneId: null,
+          createdAt: NOW_ISO,
+          updatedAt: NOW_ISO,
+          deletedAt: null,
+        },
+      ],
+    },
     serverConfig: createBaseServerConfig(),
     welcome: {
       cwd: "/repo/project",
@@ -130,6 +171,9 @@ function buildFixture(): TestFixture {
 function resolveWsRpc(tag: string): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === WORKSPACE_WS_METHODS.getSnapshot) {
+    return fixture.workspaceSnapshot;
   }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
@@ -265,7 +309,9 @@ async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
   host.style.overflow = "hidden";
   document.body.append(host);
 
-  const router = getRouter(createMemoryHistory({ initialEntries: [`/${THREAD_ID}`] }));
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/workspaces/${WORKSPACE_ID}`] }),
+  );
 
   const screen = await render(<RouterProvider router={router} />, { container: host });
   await waitForComposerEditor();

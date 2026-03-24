@@ -24,6 +24,9 @@ import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { isSupportedBrowserTabUrl } from "../browserUrl";
+import { removeWorkspaceBrowserTab } from "../workspaceBrowser";
+import { buildChatPaneId, resolveDefaultWorkspaceId } from "../workspaceShell";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -132,7 +135,12 @@ function errorDetails(error: unknown): string {
 
 function EventRouter() {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
+  const syncWorkspaceReadModel = useStore((store) => store.syncWorkspaceReadModel);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
+  const applyBrowserRuntimeEvent = useStore((store) => store.applyBrowserRuntimeEvent);
+  const hydrateBrowserRuntimeTabs = useStore((store) => store.hydrateBrowserRuntimeTabs);
+  const workspaces = useStore((store) => store.workspaces);
+  const workspacesHydrated = useStore((store) => store.workspacesHydrated);
   const removeOrphanedTerminalStates = useTerminalStateStore(
     (store) => store.removeOrphanedTerminalStates,
   );
@@ -141,6 +149,7 @@ function EventRouter() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
+  const restoredBrowserTabIdsRef = useRef(new Set<string>());
 
   pathnameRef.current = pathname;
 
@@ -154,10 +163,14 @@ function EventRouter() {
     let needsProviderInvalidation = false;
 
     const flushSnapshotSync = async (): Promise<void> => {
-      const snapshot = await api.orchestration.getSnapshot();
+      const [snapshot, workspaceSnapshot] = await Promise.all([
+        api.orchestration.getSnapshot(),
+        api.workspace.getSnapshot(),
+      ]);
       if (disposed) return;
       latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
       syncServerReadModel(snapshot);
+      syncWorkspaceReadModel(workspaceSnapshot);
       clearPromotedDraftThreads(new Set(snapshot.threads.map((t) => t.id)));
       const draftThreadIds = Object.keys(
         useComposerDraftStore.getState().draftThreadsByThreadId,
@@ -216,6 +229,9 @@ function EventRouter() {
       }
       domainEventFlushThrottler.maybeExecute();
     });
+    const unsubWorkspaceEvent = api.workspace.onEvent(() => {
+      domainEventFlushThrottler.maybeExecute();
+    });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
       if (hasRunningSubprocess === null) {
@@ -236,23 +252,43 @@ function EventRouter() {
           return;
         }
 
-        if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
+        if (pathnameRef.current !== "/") {
+          return;
+        }
+        if (!payload.bootstrapProjectId) {
           return;
         }
         setProjectExpanded(payload.bootstrapProjectId, true);
 
-        if (pathnameRef.current !== "/") {
+        const state = useStore.getState();
+        const bootstrapThreadId = payload.bootstrapThreadId
+          ? ThreadId.makeUnsafe(payload.bootstrapThreadId)
+          : null;
+        const bootstrapWorkspaceId =
+          (bootstrapThreadId
+            ? state.threads.find((thread) => thread.id === bootstrapThreadId)?.workspaceId
+            : null) ?? resolveDefaultWorkspaceId(state.workspaces);
+        if (!bootstrapWorkspaceId) {
           return;
         }
         if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {
           return;
         }
+        if (bootstrapThreadId) {
+          useStore.getState().rememberVisitedWorkspace(bootstrapWorkspaceId);
+          useStore.getState().openWorkspaceThreadPane(bootstrapWorkspaceId, bootstrapThreadId);
+          useStore
+            .getState()
+            .focusWorkspacePane(bootstrapWorkspaceId, buildChatPaneId(bootstrapThreadId));
+        } else {
+          useStore.getState().rememberVisitedWorkspace(bootstrapWorkspaceId);
+        }
         await navigate({
-          to: "/$threadId",
-          params: { threadId: payload.bootstrapThreadId },
+          to: "/workspaces/$workspaceId",
+          params: { workspaceId: bootstrapWorkspaceId },
           replace: true,
         });
-        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
+        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId ?? null;
       })().catch(() => undefined);
     });
     // onServerConfigUpdated replays the latest cached value synchronously
@@ -306,6 +342,7 @@ function EventRouter() {
       needsProviderInvalidation = false;
       domainEventFlushThrottler.cancel();
       unsubDomainEvent();
+      unsubWorkspaceEvent();
       unsubTerminalEvent();
       unsubWelcome();
       unsubServerConfigUpdated();
@@ -316,7 +353,73 @@ function EventRouter() {
     removeOrphanedTerminalStates,
     setProjectExpanded,
     syncServerReadModel,
+    syncWorkspaceReadModel,
   ]);
+
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    let disposed = false;
+    void api.browser
+      .listTabs()
+      .then((tabs) => {
+        if (disposed) {
+          return;
+        }
+        hydrateBrowserRuntimeTabs(tabs);
+      })
+      .catch(() => undefined);
+
+    const unsubscribe = api.browser.onEvent((event) => {
+      if (event.type === "tab-closed") {
+        restoredBrowserTabIdsRef.current.delete(event.tabId);
+        void removeWorkspaceBrowserTab({
+          tabId: event.tabId,
+          closeNative: false,
+        });
+        return;
+      }
+      applyBrowserRuntimeEvent(event);
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [applyBrowserRuntimeEvent, hydrateBrowserRuntimeTabs]);
+
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api || !workspacesHydrated) {
+      return;
+    }
+    for (const workspace of workspaces) {
+      for (const browserTab of workspace.browserTabs) {
+        if (!isSupportedBrowserTabUrl(browserTab.url)) {
+          void removeWorkspaceBrowserTab({
+            tabId: browserTab.id,
+            closeNative: false,
+          });
+          continue;
+        }
+        if (restoredBrowserTabIdsRef.current.has(browserTab.id)) {
+          continue;
+        }
+        restoredBrowserTabIdsRef.current.add(browserTab.id);
+        void api.browser
+          .open({
+            tabId: browserTab.id,
+            url: browserTab.url,
+            title: browserTab.title,
+          })
+          .catch(() => {
+            restoredBrowserTabIdsRef.current.delete(browserTab.id);
+          });
+      }
+    }
+  }, [workspaces, workspacesHydrated]);
 
   return null;
 }
