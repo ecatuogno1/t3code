@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -11,6 +11,13 @@ import {
   ProjectionThreadGroupRepository,
   type ProjectionThreadGroupRepositoryShape,
 } from "../Services/ProjectionThreadGroups.ts";
+
+/** Convert a raw DB row (with integer is_collapsed) to a ProjectionThreadGroup. */
+const fromDbRow = (row: Record<string, unknown>): ProjectionThreadGroup =>
+  ({
+    ...row,
+    isCollapsed: row.isCollapsed !== 0,
+  }) as ProjectionThreadGroup;
 
 const makeProjectionThreadGroupRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -54,48 +61,6 @@ const makeProjectionThreadGroupRepository = Effect.gen(function* () {
       `,
   });
 
-  const getRow = SqlSchema.findOneOption({
-    Request: GetProjectionThreadGroupInput,
-    Result: ProjectionThreadGroup,
-    execute: ({ groupId }) =>
-      sql`
-        SELECT
-          group_id AS "groupId",
-          project_id AS "projectId",
-          title,
-          color,
-          order_index AS "orderIndex",
-          CASE WHEN is_collapsed = 1 THEN 1 ELSE 0 END AS "isCollapsed",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_thread_groups
-        WHERE group_id = ${groupId}
-      `,
-  });
-
-  const listRows = SqlSchema.findAll({
-    Request: ListProjectionThreadGroupsByProjectInput,
-    Result: ProjectionThreadGroup,
-    execute: ({ projectId }) =>
-      sql`
-        SELECT
-          group_id AS "groupId",
-          project_id AS "projectId",
-          title,
-          color,
-          order_index AS "orderIndex",
-          CASE WHEN is_collapsed = 1 THEN 1 ELSE 0 END AS "isCollapsed",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_thread_groups
-        WHERE project_id = ${projectId}
-          AND deleted_at IS NULL
-        ORDER BY order_index ASC, created_at ASC
-      `,
-  });
-
   const deleteRow = SqlSchema.void({
     Request: DeleteProjectionThreadGroupInput,
     execute: ({ groupId }) =>
@@ -110,13 +75,47 @@ const makeProjectionThreadGroupRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadGroupRepository.upsert:query")),
     );
 
-  const getById: ProjectionThreadGroupRepositoryShape["getById"] = (input) =>
-    getRow(input).pipe(
+  const getById: ProjectionThreadGroupRepositoryShape["getById"] = ({ groupId }) =>
+    sql`
+      SELECT
+        group_id AS "groupId",
+        project_id AS "projectId",
+        title,
+        color,
+        order_index AS "orderIndex",
+        is_collapsed AS "isCollapsed",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt",
+        deleted_at AS "deletedAt"
+      FROM projection_thread_groups
+      WHERE group_id = ${groupId}
+    `.pipe(
+      Effect.map((rows) =>
+        rows.length > 0 ? Option.some(fromDbRow(rows[0] as Record<string, unknown>)) : Option.none(),
+      ),
       Effect.mapError(toPersistenceSqlError("ProjectionThreadGroupRepository.getById:query")),
     );
 
-  const listByProjectId: ProjectionThreadGroupRepositoryShape["listByProjectId"] = (input) =>
-    listRows(input).pipe(
+  const listByProjectId: ProjectionThreadGroupRepositoryShape["listByProjectId"] = ({
+    projectId,
+  }) =>
+    sql`
+      SELECT
+        group_id AS "groupId",
+        project_id AS "projectId",
+        title,
+        color,
+        order_index AS "orderIndex",
+        is_collapsed AS "isCollapsed",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt",
+        deleted_at AS "deletedAt"
+      FROM projection_thread_groups
+      WHERE project_id = ${projectId}
+        AND deleted_at IS NULL
+      ORDER BY order_index ASC, created_at ASC
+    `.pipe(
+      Effect.map((rows) => rows.map((row) => fromDbRow(row as Record<string, unknown>))),
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadGroupRepository.listByProjectId:query"),
       ),
