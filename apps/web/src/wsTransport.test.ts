@@ -16,9 +16,11 @@ class MockWebSocket {
 
   readyState = MockWebSocket.CONNECTING;
   readonly sent: string[] = [];
+  readonly url: string;
   private readonly listeners = new Map<WsEventType, Set<WsListener>>();
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url;
     sockets.push(this);
   }
 
@@ -71,7 +73,13 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      location: { hostname: "localhost", port: "3020" },
+      location: {
+        protocol: "http:",
+        host: "localhost:3020",
+        hostname: "localhost",
+        port: "3020",
+        search: "",
+      },
       desktopBridge: undefined,
     },
   });
@@ -204,6 +212,29 @@ describe("WsTransport", () => {
     );
 
     await expect(requestPromise).resolves.toEqual({ projects: [] });
+    transport.dispose();
+  });
+
+  it("preserves the auth token from the page URL in browser websocket mode", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        location: {
+          protocol: "https:",
+          host: "remote.example.com",
+          hostname: "remote.example.com",
+          port: "",
+          search: "?token=secret-token",
+        },
+        desktopBridge: undefined,
+      },
+    });
+
+    const transport = new WsTransport();
+    const socket = getSocket();
+
+    expect(socket.url).toBe("wss://remote.example.com/?token=secret-token");
+
     transport.dispose();
   });
 });

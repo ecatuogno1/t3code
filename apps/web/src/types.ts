@@ -3,6 +3,7 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  OrchestrationThreadCategorization,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -12,6 +13,10 @@ import type {
   ProviderKind,
   ProviderInteractionMode,
   RuntimeMode,
+  WorkspaceId,
+  WorkspaceProjectId,
+  WorkspaceProjectSurface,
+  WorkspaceSurface,
 } from "@t3tools/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -89,11 +94,14 @@ export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId;
+  workspaceId: WorkspaceId;
+  workspaceProjectId: WorkspaceProjectId | null;
   title: string;
   model: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;
+  categorization?: OrchestrationThreadCategorization | null;
   messages: ChatMessage[];
   proposedPlans: ProposedPlan[];
   error: string | null;
@@ -102,6 +110,8 @@ export interface Thread {
   lastVisitedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  pullRequestUrl?: string | null;
+  previewUrls?: string[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -115,3 +125,6 @@ export interface ThreadSession {
   lastError?: string;
   orchestrationStatus: OrchestrationSessionStatus;
 }
+
+export type Workspace = WorkspaceSurface;
+export type WorkspaceProject = WorkspaceProjectSurface;

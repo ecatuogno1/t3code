@@ -68,7 +68,7 @@ export class WsTransport {
         ? bridgeUrl
         : envUrl && envUrl.length > 0
           ? envUrl
-          : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`);
+          : resolveBrowserWebSocketUrl());
     this.connect();
   }
 
@@ -282,4 +282,15 @@ export class WsTransport {
       this.connect();
     }, delay);
   }
+}
+
+function resolveBrowserWebSocketUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(`${protocol}//${window.location.host || window.location.hostname}`);
+  const pageSearch = new URLSearchParams(window.location.search);
+  const token = pageSearch.get("token");
+  if (token && token.length > 0) {
+    url.searchParams.set("token", token);
+  }
+  return url.toString();
 }

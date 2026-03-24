@@ -1,37 +1,21 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
 import { TrimmedNonEmptyString, type ProviderKind } from "@t3tools/contracts";
-import {
-  getDefaultModel,
-  getModelOptions,
-  normalizeModelSlug,
-  resolveSelectableModel,
-} from "@t3tools/shared/model";
+import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
-import { EnvMode } from "./components/BranchToolbar.logic";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
-
-export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
-export type TimestampFormat = typeof TimestampFormat.Type;
+export const TIMESTAMP_FORMAT_OPTIONS = ["locale", "12-hour", "24-hour"] as const;
+export type TimestampFormat = (typeof TIMESTAMP_FORMAT_OPTIONS)[number];
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
-type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels";
-export type ProviderCustomModelConfig = {
-  provider: ProviderKind;
-  settingsKey: CustomModelSettingsKey;
-  defaultSettingsKey: CustomModelSettingsKey;
-  title: string;
-  description: string;
-  placeholder: string;
-  example: string;
-};
-
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
 };
+
+type EnvMode = "local" | "worktree";
 
 const withDefaults =
   <
@@ -49,13 +33,18 @@ const withDefaults =
 export const AppSettingsSchema = Schema.Struct({
   codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
+  defaultThreadEnvMode: Schema.Literals(["local", "worktree"]).pipe(
+    withDefaults(() => "local" as const satisfies EnvMode),
+  ),
   confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => false)),
-  timestampFormat: TimestampFormat.pipe(withDefaults(() => DEFAULT_TIMESTAMP_FORMAT)),
+  timestampFormat: Schema.Literals(["locale", "12-hour", "24-hour"]).pipe(
+    withDefaults(() => DEFAULT_TIMESTAMP_FORMAT),
+  ),
   customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  threadCategorizationModel: Schema.optional(TrimmedNonEmptyString),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 export interface AppModelOption {
@@ -65,6 +54,19 @@ export interface AppModelOption {
 }
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+
+type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels";
+
+export type ProviderCustomModelConfig = {
+  provider: ProviderKind;
+  settingsKey: CustomModelSettingsKey;
+  defaultSettingsKey: CustomModelSettingsKey;
+  title: string;
+  description: string;
+  placeholder: string;
+  example: string;
+};
+
 const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
   codex: {
     provider: "codex",
@@ -116,12 +118,49 @@ export function normalizeCustomModelSlugs(
   return normalizedModels;
 }
 
-function normalizeAppSettings(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
-    customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
-  };
+export function getAppModelOptions(
+  provider: ProviderKind,
+  customModels: readonly string[],
+  selectedModel?: string | null,
+): AppModelOption[] {
+  const options: AppModelOption[] = getModelOptions(provider).map(({ slug, name }) => ({
+    slug,
+    name,
+    isCustom: false,
+  }));
+  const seen = new Set(options.map((option) => option.slug));
+
+  for (const slug of normalizeCustomModelSlugs(customModels, provider)) {
+    if (seen.has(slug)) {
+      continue;
+    }
+
+    seen.add(slug);
+    options.push({
+      slug,
+      name: slug,
+      isCustom: true,
+    });
+  }
+
+  const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
+  const trimmedSelected = selectedModel?.trim().toLowerCase();
+  const selectedModelMatchesExistingName =
+    typeof trimmedSelected === "string" &&
+    options.some((option) => option.name.toLowerCase() === trimmedSelected);
+  if (
+    normalizedSelectedModel &&
+    !seen.has(normalizedSelectedModel) &&
+    !selectedModelMatchesExistingName
+  ) {
+    options.push({
+      slug: normalizedSelectedModel,
+      name: normalizedSelectedModel,
+      isCustom: true,
+    });
+  }
+
+  return options;
 }
 
 export function getCustomModelsForProvider(
@@ -156,59 +195,39 @@ export function getCustomModelsByProvider(
   };
 }
 
-export function getAppModelOptions(
+export function resolveAppModelSelection(
   provider: ProviderKind,
-  customModels: readonly string[],
-  selectedModel?: string | null,
-): AppModelOption[] {
-  const options: AppModelOption[] = getModelOptions(provider).map(({ slug, name }) => ({
-    slug,
-    name,
-    isCustom: false,
-  }));
-  const seen = new Set(options.map((option) => option.slug));
-  const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
-
-  for (const slug of normalizeCustomModelSlugs(customModels, provider)) {
-    if (seen.has(slug)) {
-      continue;
+  customModels: Record<ProviderKind, readonly string[]> | readonly string[],
+  selectedModel: string | null | undefined,
+): string {
+  const customModelsForProvider = Array.isArray(customModels)
+    ? customModels
+    : (customModels as Record<ProviderKind, readonly string[]>)[provider] ?? [];
+  const options = getAppModelOptions(provider, customModelsForProvider, selectedModel);
+  const trimmedSelectedModel = selectedModel?.trim();
+  if (trimmedSelectedModel) {
+    const direct = options.find((option) => option.slug === trimmedSelectedModel);
+    if (direct) {
+      return direct.slug;
     }
 
-    seen.add(slug);
-    options.push({
-      slug,
-      name: slug,
-      isCustom: true,
-    });
+    const byName = options.find(
+      (option) => option.name.toLowerCase() === trimmedSelectedModel.toLowerCase(),
+    );
+    if (byName) {
+      return byName.slug;
+    }
   }
 
   const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
-  const selectedModelMatchesExistingName =
-    typeof trimmedSelectedModel === "string" &&
-    options.some((option) => option.name.toLowerCase() === trimmedSelectedModel);
-  if (
-    normalizedSelectedModel &&
-    !seen.has(normalizedSelectedModel) &&
-    !selectedModelMatchesExistingName
-  ) {
-    options.push({
-      slug: normalizedSelectedModel,
-      name: normalizedSelectedModel,
-      isCustom: true,
-    });
+  if (!normalizedSelectedModel) {
+    return getDefaultModel(provider);
   }
 
-  return options;
-}
-
-export function resolveAppModelSelection(
-  provider: ProviderKind,
-  customModels: Record<ProviderKind, readonly string[]>,
-  selectedModel: string | null | undefined,
-): string {
-  const customModelsForProvider = customModels[provider];
-  const options = getAppModelOptions(provider, customModelsForProvider, selectedModel);
-  return resolveSelectableModel(provider, selectedModel, options) ?? getDefaultModel(provider);
+  return (
+    options.find((option) => option.slug === normalizedSelectedModel)?.slug ??
+    getDefaultModel(provider)
+  );
 }
 
 export function getCustomModelOptionsByProvider(
@@ -230,7 +249,10 @@ export function useAppSettings() {
 
   const updateSettings = useCallback(
     (patch: Partial<AppSettings>) => {
-      setSettings((prev) => normalizeAppSettings({ ...prev, ...patch }));
+      setSettings((prev) => ({
+        ...prev,
+        ...patch,
+      }));
     },
     [setSettings],
   );

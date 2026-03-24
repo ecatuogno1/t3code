@@ -2,8 +2,12 @@ import {
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type ContextMenuItem,
+  type BrowserOpenInput,
+  type BrowserTabSnapshot,
   type NativeApi,
   ServerConfigUpdatedPayload,
+  WORKSPACE_WS_CHANNELS,
+  WORKSPACE_WS_METHODS,
   WS_CHANNELS,
   WS_METHODS,
   type WsWelcomePayload,
@@ -112,6 +116,10 @@ export function createWsNativeApi(): NativeApi {
         transport.subscribe(WS_CHANNELS.terminalEvent, (message) => callback(message.data)),
     },
     projects: {
+      listDirectory: (input) => transport.request(WS_METHODS.projectsListDirectory, input),
+      readFile: (input) => transport.request(WS_METHODS.projectsReadFile, input),
+      resolveFileTestTarget: (input) =>
+        transport.request(WS_METHODS.projectsResolveFileTestTarget, input),
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
     },
@@ -174,6 +182,82 @@ export function createWsNativeApi(): NativeApi {
         transport.subscribe(ORCHESTRATION_WS_CHANNELS.domainEvent, (message) =>
           callback(message.data),
         ),
+    },
+    imports: {
+      scan: (input) => transport.request(WS_METHODS.importsScan, input ?? {}),
+      importSession: (input) => transport.request(WS_METHODS.importsImportSession, input),
+    },
+    threadCategorization: {
+      categorizeProjectThreads: (input) =>
+        transport.request(WS_METHODS.threadCategorizationCategorizeProjectThreads, input),
+    },
+    workspace: {
+      getSnapshot: () => transport.request(WORKSPACE_WS_METHODS.getSnapshot),
+      dispatchCommand: (command) =>
+        transport.request(WORKSPACE_WS_METHODS.dispatchCommand, { command }),
+      onEvent: (callback) =>
+        transport.subscribe(WORKSPACE_WS_CHANNELS.event, (message) => callback(message.data)),
+    },
+    browser: {
+      listTabs: async () => {
+        if (!window.desktopBridge?.browser) {
+          return [];
+        }
+        return window.desktopBridge.browser.listTabs();
+      },
+      open: async (input: BrowserOpenInput): Promise<BrowserTabSnapshot> => {
+        if (!window.desktopBridge?.browser) {
+          const openWindow = window.open ?? globalThis.open;
+          if (typeof openWindow === "function") {
+            openWindow(input.url, "_blank", "noopener,noreferrer");
+          }
+          return {
+            id: input.tabId ?? input.url,
+            url: input.url,
+            title: input.title ?? null,
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+          };
+        }
+        return window.desktopBridge.browser.open(input);
+      },
+      navigate: async (input) => {
+        if (!window.desktopBridge?.browser) {
+          throw new Error("Embedded browser tabs are only available in desktop builds.");
+        }
+        return window.desktopBridge.browser.navigate(input);
+      },
+      focus: async (input) => {
+        if (!window.desktopBridge?.browser) {
+          throw new Error("Embedded browser tabs are only available in desktop builds.");
+        }
+        return window.desktopBridge.browser.focus(input);
+      },
+      close: async (input) => {
+        if (!window.desktopBridge?.browser) {
+          return;
+        }
+        return window.desktopBridge.browser.close(input);
+      },
+      setPaneBounds: async (input) => {
+        if (!window.desktopBridge?.browser) {
+          return;
+        }
+        return window.desktopBridge.browser.setPaneBounds(input);
+      },
+      setPaneVisibility: async (input) => {
+        if (!window.desktopBridge?.browser) {
+          return;
+        }
+        return window.desktopBridge.browser.setPaneVisibility(input);
+      },
+      onEvent: (callback) => {
+        if (!window.desktopBridge?.browser) {
+          return () => {};
+        }
+        return window.desktopBridge.browser.onEvent(callback);
+      },
     },
   };
 

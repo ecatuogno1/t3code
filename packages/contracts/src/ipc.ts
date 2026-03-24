@@ -19,6 +19,12 @@ import type {
   GitStatusResult,
 } from "./git";
 import type {
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
+  ProjectResolveFileTestTargetInput,
+  ProjectResolveFileTestTargetResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -45,6 +51,22 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
 } from "./orchestration";
+import type {
+  WorkspaceCommand,
+  WorkspaceDispatchCommandResult,
+  WorkspaceEvent,
+  WorkspaceReadModel,
+} from "./workspace";
+import type {
+  ThreadImportCandidate,
+  ThreadImportRequest,
+  ThreadImportResult,
+  ThreadImportScanRequest,
+} from "./imports";
+import type {
+  ThreadCategorizationRequest,
+  ThreadCategorizationResult,
+} from "./threadCategorization";
 import { EditorId } from "./editor";
 
 export interface ContextMenuItem<T extends string = string> {
@@ -94,6 +116,69 @@ export interface DesktopUpdateActionResult {
   state: DesktopUpdateState;
 }
 
+export interface BrowserTabSnapshot {
+  id: string;
+  url: string;
+  title: string | null;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export interface BrowserOpenInput {
+  tabId?: string;
+  url: string;
+  title?: string | null;
+}
+
+export interface BrowserNavigateInput {
+  tabId: string;
+  url: string;
+}
+
+export interface BrowserFocusInput {
+  tabId: string;
+}
+
+export interface BrowserCloseInput {
+  tabId: string;
+}
+
+export interface BrowserPaneBoundsInput {
+  tabId: string;
+  paneId: string;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface BrowserPaneVisibilityInput {
+  tabId: string;
+  paneId: string;
+  visible: boolean;
+}
+
+export type BrowserEvent =
+  | {
+      type: "tab-opened";
+      tab: BrowserTabSnapshot;
+    }
+  | {
+      type: "tab-updated";
+      tab: BrowserTabSnapshot;
+    }
+  | {
+      type: "tab-focused";
+      tabId: string;
+    }
+  | {
+      type: "tab-closed";
+      tabId: string;
+    };
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
@@ -109,6 +194,16 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  browser: {
+    listTabs: () => Promise<BrowserTabSnapshot[]>;
+    open: (input: BrowserOpenInput) => Promise<BrowserTabSnapshot>;
+    navigate: (input: BrowserNavigateInput) => Promise<BrowserTabSnapshot>;
+    focus: (input: BrowserFocusInput) => Promise<void>;
+    close: (input: BrowserCloseInput) => Promise<void>;
+    setPaneBounds: (input: BrowserPaneBoundsInput) => Promise<void>;
+    setPaneVisibility: (input: BrowserPaneVisibilityInput) => Promise<void>;
+    onEvent: (listener: (event: BrowserEvent) => void) => () => void;
+  };
 }
 
 export interface NativeApi {
@@ -126,6 +221,11 @@ export interface NativeApi {
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
   projects: {
+    listDirectory: (input: ProjectListDirectoryInput) => Promise<ProjectListDirectoryResult>;
+    readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
+    resolveFileTestTarget: (
+      input: ProjectResolveFileTestTargetInput,
+    ) => Promise<ProjectResolveFileTestTargetResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
   };
@@ -169,5 +269,29 @@ export interface NativeApi {
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
+  };
+  imports: {
+    scan: (input?: ThreadImportScanRequest) => Promise<ReadonlyArray<ThreadImportCandidate>>;
+    importSession: (input: ThreadImportRequest) => Promise<ThreadImportResult>;
+  };
+  threadCategorization: {
+    categorizeProjectThreads: (
+      input: ThreadCategorizationRequest,
+    ) => Promise<ThreadCategorizationResult>;
+  };
+  workspace: {
+    getSnapshot: () => Promise<WorkspaceReadModel>;
+    dispatchCommand: (command: WorkspaceCommand) => Promise<WorkspaceDispatchCommandResult>;
+    onEvent: (callback: (event: WorkspaceEvent) => void) => () => void;
+  };
+  browser: {
+    listTabs: () => Promise<BrowserTabSnapshot[]>;
+    open: (input: BrowserOpenInput) => Promise<BrowserTabSnapshot>;
+    navigate: (input: BrowserNavigateInput) => Promise<BrowserTabSnapshot>;
+    focus: (input: BrowserFocusInput) => Promise<void>;
+    close: (input: BrowserCloseInput) => Promise<void>;
+    setPaneBounds: (input: BrowserPaneBoundsInput) => Promise<void>;
+    setPaneVisibility: (input: BrowserPaneVisibilityInput) => Promise<void>;
+    onEvent: (callback: (event: BrowserEvent) => void) => () => void;
   };
 }

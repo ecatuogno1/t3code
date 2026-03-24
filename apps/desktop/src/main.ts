@@ -18,6 +18,7 @@ import {
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
+  BrowserEvent,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
@@ -43,6 +44,7 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { createDesktopBrowserTabManager } from "./browserTabs";
 
 syncShellEnvironment();
 
@@ -56,6 +58,14 @@ const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
+const BROWSER_LIST_TABS_CHANNEL = "desktop:browser-list-tabs";
+const BROWSER_OPEN_CHANNEL = "desktop:browser-open";
+const BROWSER_NAVIGATE_CHANNEL = "desktop:browser-navigate";
+const BROWSER_FOCUS_CHANNEL = "desktop:browser-focus";
+const BROWSER_CLOSE_CHANNEL = "desktop:browser-close";
+const BROWSER_SET_PANE_BOUNDS_CHANNEL = "desktop:browser-set-pane-bounds";
+const BROWSER_SET_PANE_VISIBILITY_CHANNEL = "desktop:browser-set-pane-visibility";
+const BROWSER_EVENT_CHANNEL = "desktop:browser-event";
 const BASE_DIR = process.env.T3CODE_HOME?.trim() || Path.join(OS.homedir(), ".t3");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "t3";
@@ -91,6 +101,17 @@ let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
+const browserTabManager = createDesktopBrowserTabManager({
+  appDisplayName: APP_DISPLAY_NAME,
+  getOwnerWindow: () => BrowserWindow.getFocusedWindow() ?? mainWindow,
+  onEvent: (event: BrowserEvent) => {
+    const targetWindow = mainWindow;
+    if (!targetWindow || targetWindow.isDestroyed()) {
+      return;
+    }
+    targetWindow.webContents.send(BROWSER_EVENT_CHANNEL, event);
+  },
+});
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
@@ -1210,6 +1231,61 @@ function registerIpcHandlers(): void {
       completed: result.completed,
       state: updateState,
     } satisfies DesktopUpdateActionResult;
+  });
+
+  ipcMain.removeHandler(BROWSER_LIST_TABS_CHANNEL);
+  ipcMain.handle(BROWSER_LIST_TABS_CHANNEL, async () => browserTabManager.listTabs());
+
+  ipcMain.removeHandler(BROWSER_OPEN_CHANNEL);
+  ipcMain.handle(BROWSER_OPEN_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser open input.");
+    }
+    return browserTabManager.open(input as Parameters<typeof browserTabManager.open>[0]);
+  });
+
+  ipcMain.removeHandler(BROWSER_NAVIGATE_CHANNEL);
+  ipcMain.handle(BROWSER_NAVIGATE_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser navigate input.");
+    }
+    return browserTabManager.navigate(input as Parameters<typeof browserTabManager.navigate>[0]);
+  });
+
+  ipcMain.removeHandler(BROWSER_FOCUS_CHANNEL);
+  ipcMain.handle(BROWSER_FOCUS_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser focus input.");
+    }
+    return browserTabManager.focus(input as Parameters<typeof browserTabManager.focus>[0]);
+  });
+
+  ipcMain.removeHandler(BROWSER_CLOSE_CHANNEL);
+  ipcMain.handle(BROWSER_CLOSE_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser close input.");
+    }
+    return browserTabManager.close(input as Parameters<typeof browserTabManager.close>[0]);
+  });
+
+  ipcMain.removeHandler(BROWSER_SET_PANE_BOUNDS_CHANNEL);
+  ipcMain.handle(BROWSER_SET_PANE_BOUNDS_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser pane bounds input.");
+    }
+    return browserTabManager.setPaneBounds(
+      input as Parameters<typeof browserTabManager.setPaneBounds>[0],
+    );
+  });
+
+  ipcMain.removeHandler(BROWSER_SET_PANE_VISIBILITY_CHANNEL);
+  ipcMain.handle(BROWSER_SET_PANE_VISIBILITY_CHANNEL, async (_event, input: unknown) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid browser pane visibility input.");
+    }
+    return browserTabManager.setPaneVisibility(
+      input as Parameters<typeof browserTabManager.setPaneVisibility>[0],
+    );
   });
 }
 

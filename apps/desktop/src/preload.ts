@@ -11,6 +11,14 @@ const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
+const BROWSER_LIST_TABS_CHANNEL = "desktop:browser-list-tabs";
+const BROWSER_OPEN_CHANNEL = "desktop:browser-open";
+const BROWSER_NAVIGATE_CHANNEL = "desktop:browser-navigate";
+const BROWSER_FOCUS_CHANNEL = "desktop:browser-focus";
+const BROWSER_CLOSE_CHANNEL = "desktop:browser-close";
+const BROWSER_SET_PANE_BOUNDS_CHANNEL = "desktop:browser-set-pane-bounds";
+const BROWSER_SET_PANE_VISIBILITY_CHANNEL = "desktop:browser-set-pane-visibility";
+const BROWSER_EVENT_CHANNEL = "desktop:browser-event";
 const wsUrl = process.env.T3CODE_DESKTOP_WS_URL ?? null;
 
 contextBridge.exposeInMainWorld("desktopBridge", {
@@ -44,5 +52,27 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(UPDATE_STATE_CHANNEL, wrappedListener);
     };
+  },
+  browser: {
+    listTabs: () => ipcRenderer.invoke(BROWSER_LIST_TABS_CHANNEL),
+    open: (input) => ipcRenderer.invoke(BROWSER_OPEN_CHANNEL, input),
+    navigate: (input) => ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, input),
+    focus: (input) => ipcRenderer.invoke(BROWSER_FOCUS_CHANNEL, input),
+    close: (input) => ipcRenderer.invoke(BROWSER_CLOSE_CHANNEL, input),
+    setPaneBounds: (input) => ipcRenderer.invoke(BROWSER_SET_PANE_BOUNDS_CHANNEL, input),
+    setPaneVisibility: (input) => ipcRenderer.invoke(BROWSER_SET_PANE_VISIBILITY_CHANNEL, input),
+    onEvent: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, browserEvent: unknown) => {
+        if (typeof browserEvent !== "object" || browserEvent === null) {
+          return;
+        }
+        listener(browserEvent as Parameters<typeof listener>[0]);
+      };
+
+      ipcRenderer.on(BROWSER_EVENT_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_EVENT_CHANNEL, wrappedListener);
+      };
+    },
   },
 } satisfies DesktopBridge);

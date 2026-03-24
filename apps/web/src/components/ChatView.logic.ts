@@ -1,6 +1,7 @@
-import { ProjectId, type ThreadId } from "@t3tools/contracts";
+import { ProjectId, WorkspaceId, type ProviderKind, type ThreadId } from "@t3tools/contracts";
 import { type ChatMessage, type Thread } from "../types";
 import { randomUUID } from "~/lib/utils";
+import { getAppModelOptions } from "../appSettings";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
 import {
@@ -24,6 +25,10 @@ export function buildLocalDraftThread(
     id: threadId,
     codexThreadId: null,
     projectId: draftThread.projectId,
+    workspaceId: WorkspaceId.makeUnsafe(
+      `draft:${draftThread.projectId}:${draftThread.worktreePath ?? "root"}`,
+    ),
+    workspaceProjectId: draftThread.workspaceProjectId ?? null,
     title: "New thread",
     model: fallbackModel,
     runtimeMode: draftThread.runtimeMode,
@@ -36,6 +41,8 @@ export function buildLocalDraftThread(
     lastVisitedAt: draftThread.createdAt,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
+    pullRequestUrl: draftThread.pullRequestUrl,
+    previewUrls: [],
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
@@ -118,6 +125,16 @@ export function cloneComposerImageForRetry(
   } catch {
     return image;
   }
+}
+
+export function getCustomModelOptionsByProvider(settings: {
+  customCodexModels: readonly string[];
+  customClaudeModels: readonly string[];
+}): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
+  return {
+    codex: getAppModelOptions("codex", settings.customCodexModels),
+    claudeAgent: getAppModelOptions("claudeAgent", settings.customClaudeModels),
+  };
 }
 
 export function deriveComposerSendState(options: {

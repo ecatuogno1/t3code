@@ -1,4 +1,6 @@
 import {
+  type BrowserEvent,
+  type BrowserTabSnapshot,
   CommandId,
   type ContextMenuItem,
   EventId,
@@ -7,6 +9,8 @@ import {
   type OrchestrationEvent,
   ProjectId,
   ThreadId,
+  WorkspaceId,
+  WORKSPACE_WS_METHODS,
   type WsPushChannel,
   type WsPushData,
   type WsPushMessage,
@@ -320,6 +324,61 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards workspace directory listing to the websocket project method", async () => {
+    requestMock.mockResolvedValue({ directoryPath: "src", entries: [] });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.listDirectory({
+      cwd: "/tmp/project",
+      directoryPath: "src",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsListDirectory, {
+      cwd: "/tmp/project",
+      directoryPath: "src",
+    });
+  });
+
+  it("forwards workspace file preview requests to the websocket project method", async () => {
+    requestMock.mockResolvedValue({
+      relativePath: "src/app.ts",
+      contents: "export {};",
+      isBinary: false,
+      truncated: false,
+      sizeBytes: 10,
+      previewMaxBytes: 262144,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.readFile({
+      cwd: "/tmp/project",
+      relativePath: "src/app.ts",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsReadFile, {
+      cwd: "/tmp/project",
+      relativePath: "src/app.ts",
+    });
+  });
+
+  it("forwards workspace file test target requests to the websocket project method", async () => {
+    requestMock.mockResolvedValue({ kind: "unsupported" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.resolveFileTestTarget({
+      cwd: "/tmp/project",
+      relativePath: "src/app.ts",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsResolveFileTestTarget, {
+      cwd: "/tmp/project",
+      relativePath: "src/app.ts",
+    });
+  });
+
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {
     requestMock.mockResolvedValue({ diff: "patch" });
     const { createWsNativeApi } = await import("./wsNativeApi");
@@ -380,5 +439,162 @@ describe("wsNativeApi", () => {
       [{ id: "delete", label: "Delete", destructive: true }],
       { x: 20, y: 30 },
     );
+  });
+
+  it("forwards browser tab methods to the desktop bridge", async () => {
+    const browserTab: BrowserTabSnapshot = {
+      id: "tab-1",
+      url: "https://example.com",
+      title: "Example",
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+    };
+    const listTabs = vi.fn().mockResolvedValue([browserTab]);
+    const open = vi.fn().mockResolvedValue(browserTab);
+    const navigate = vi.fn().mockResolvedValue({
+      ...browserTab,
+      url: "https://openai.com",
+      title: "OpenAI",
+    });
+    const focus = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const setPaneBounds = vi.fn().mockResolvedValue(undefined);
+    const setPaneVisibility = vi.fn().mockResolvedValue(undefined);
+    const onEvent = vi.fn((listener: (event: BrowserEvent) => void) => {
+      listener({ type: "tab-focused", tabId: "tab-1" });
+      return () => undefined;
+    });
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        browser: {
+          listTabs,
+          open,
+          navigate,
+          focus,
+          close,
+          setPaneBounds,
+          setPaneVisibility,
+          onEvent,
+        },
+      },
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    const listener = vi.fn();
+
+    await expect(api.browser.listTabs()).resolves.toEqual([browserTab]);
+    await expect(api.browser.open({ url: "https://example.com" })).resolves.toEqual(browserTab);
+    await expect(
+      api.browser.navigate({ tabId: "tab-1", url: "https://openai.com" }),
+    ).resolves.toEqual({
+      ...browserTab,
+      url: "https://openai.com",
+      title: "OpenAI",
+    });
+    await expect(api.browser.focus({ tabId: "tab-1" })).resolves.toBeUndefined();
+    await expect(api.browser.close({ tabId: "tab-1" })).resolves.toBeUndefined();
+    await expect(
+      api.browser.setPaneBounds({
+        tabId: "tab-1",
+        paneId: "browser:tab-1",
+        bounds: { x: 10, y: 20, width: 300, height: 200 },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      api.browser.setPaneVisibility({
+        tabId: "tab-1",
+        paneId: "browser:tab-1",
+        visible: true,
+      }),
+    ).resolves.toBeUndefined();
+    const unsubscribe = api.browser.onEvent(listener);
+
+    expect(listTabs).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({ url: "https://example.com" });
+    expect(navigate).toHaveBeenCalledWith({ tabId: "tab-1", url: "https://openai.com" });
+    expect(focus).toHaveBeenCalledWith({ tabId: "tab-1" });
+    expect(close).toHaveBeenCalledWith({ tabId: "tab-1" });
+    expect(setPaneBounds).toHaveBeenCalledWith({
+      tabId: "tab-1",
+      paneId: "browser:tab-1",
+      bounds: { x: 10, y: 20, width: 300, height: 200 },
+    });
+    expect(setPaneVisibility).toHaveBeenCalledWith({
+      tabId: "tab-1",
+      paneId: "browser:tab-1",
+      visible: true,
+    });
+    expect(listener).toHaveBeenCalledWith({ type: "tab-focused", tabId: "tab-1" });
+    unsubscribe();
+  });
+
+  it("falls back to a plain browser open when desktop browser tabs are unavailable", async () => {
+    const openWindow = vi.fn();
+    vi.stubGlobal("open", openWindow);
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    await expect(api.browser.listTabs()).resolves.toEqual([]);
+    await expect(
+      api.browser.open({ url: "https://example.com", title: "Example" }),
+    ).resolves.toEqual({
+      id: "https://example.com",
+      url: "https://example.com",
+      title: "Example",
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+    });
+    await expect(api.browser.close({ tabId: "tab-1" })).resolves.toBeUndefined();
+    await expect(
+      api.browser.setPaneBounds({
+        tabId: "tab-1",
+        paneId: "browser:tab-1",
+        bounds: { x: 0, y: 0, width: 100, height: 100 },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      api.browser.setPaneVisibility({
+        tabId: "tab-1",
+        paneId: "browser:tab-1",
+        visible: false,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(api.browser.focus({ tabId: "tab-1" })).rejects.toThrow(
+      "Embedded browser tabs are only available in desktop builds.",
+    );
+    expect(openWindow).toHaveBeenCalledWith("https://example.com", "_blank", "noopener,noreferrer");
+  });
+
+  it("forwards workspace dispatchCommand requests to the workspace websocket method", async () => {
+    requestMock.mockResolvedValue({ updatedAt: "2026-03-20T00:00:00.000Z" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    const workspaceId = WorkspaceId.makeUnsafe("workspace:project-1:project-root");
+    await api.workspace.dispatchCommand({
+      type: "workspace.layout.update",
+      workspaceId,
+      paneOrder: ["chat:thread-1"],
+      activePaneId: "chat:thread-1",
+      lastFocusedPaneId: "chat:thread-1",
+      updatedAt: "2026-03-20T00:00:00.000Z",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WORKSPACE_WS_METHODS.dispatchCommand, {
+      command: {
+        type: "workspace.layout.update",
+        workspaceId: "workspace:project-1:project-root",
+        paneOrder: ["chat:thread-1"],
+        activePaneId: "chat:thread-1",
+        lastFocusedPaneId: "chat:thread-1",
+        updatedAt: "2026-03-20T00:00:00.000Z",
+      },
+    });
   });
 });
