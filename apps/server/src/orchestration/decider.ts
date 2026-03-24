@@ -9,6 +9,8 @@ import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireProject,
   requireProjectAbsent,
+  requireProjectMemory,
+  requireProjectMemoryAbsent,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -627,6 +629,86 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "project-memory.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireProjectMemoryAbsent({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.created",
+        payload: {
+          memoryId: command.memoryId,
+          projectId: command.projectId,
+          title: command.title,
+          content: command.content,
+          kind: command.kind,
+          tags: command.tags,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "project-memory.update": {
+      yield* requireProjectMemory({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.updated",
+        payload: {
+          memoryId: command.memoryId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.content !== undefined ? { content: command.content } : {}),
+          ...(command.kind !== undefined ? { kind: command.kind } : {}),
+          ...(command.tags !== undefined ? { tags: command.tags } : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "project-memory.delete": {
+      yield* requireProjectMemory({
+        readModel,
+        command,
+        memoryId: command.memoryId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project-memory",
+          aggregateId: command.memoryId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "project-memory.deleted",
+        payload: {
+          memoryId: command.memoryId,
+          deletedAt: occurredAt,
         },
       };
     }
