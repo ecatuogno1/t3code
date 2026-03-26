@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git worktree:*)",
+      "Read(//private/tmp/pr-claude/**)",
+      "Bash(bun run:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git add:*)",
+      "Bash(ls apps/server/src/provider/Services/Claude*)",
+      "Bash(pnpm install:*)",
+      "Bash(COREPACK_ENABLE_STRICT=0 pnpm install)",
+      "Bash(bun install:*)",
+      "Bash(npx turbo:*)",
+      "Bash(bunx vitest:*)",
+      "Bash(git stash:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(find /Users/emanuelcatuogno/Developer/t3code -name contracts -type d -o -name *contracts* -type d)",
+      "Bash(grep -l \"branch.*create\\\\|BranchCreate\" /Users/emanuelcatuogno/Developer/t3code/apps/web/src/routes/*.tsx)",
+      "Bash(git rm:*)",
+      "Bash(find /Users/emanuelcatuogno/Developer/t3code/apps/server -name *.db -o -name *.sqlite)",
+      "Bash(grep -rn claudeCode /Users/emanuelcatuogno/Developer/t3code/apps/server/ --include=*.ts)",
+      "Bash(find /Users/emanuelcatuogno/.t3/userdata -name *.db -o -name *.sqlite)",
+      "Bash(sqlite3 /Users/emanuelcatuogno/.t3/userdata/state.sqlite \"SELECT count\\(*\\) FROM orchestration_events WHERE payload_json LIKE ''%claudeCode%''\")",
+      "Bash(sqlite3 /Users/emanuelcatuogno/.t3/userdata/state.sqlite \"UPDATE orchestration_events SET payload_json = REPLACE\\(payload_json, ''\"\"claudeCode\"\"'', ''\"\"claudeAgent\"\"''\\) WHERE payload_json LIKE ''%claudeCode%''\")",
+      "Bash(git fetch:*)",
+      "Bash(git push:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git reset:*)",
+      "Bash(grep -n \"DEFAULT_GIT_TEXT_GENERATION_MODEL\" packages/contracts/src/*.ts)",
+      "Bash(python3 /tmp/apply_server_changes.py)",
+      "Bash(ls /Users/emanuelcatuogno/Developer/t3code/.oxlintrc* /Users/emanuelcatuogno/Developer/t3code/oxlintrc*)",
+      "Bash(ls /Users/emanuelcatuogno/Developer/t3code/eslint.config* /Users/emanuelcatuogno/Developer/t3code/.eslintrc*)",
+      "Bash(find /Users/emanuelcatuogno/Developer/t3code -maxdepth 2 -name *.oxlintrc* -o -name oxlint* -o -name .oxlintrc*)",
+      "Bash(/tmp/fix_base_schemas.py:*)",
+      "Bash(python3 /tmp/fix_base_schemas.py)",
+      "Bash(python3 /tmp/apply_project_memory.py)"
+    ]
+  }
+}

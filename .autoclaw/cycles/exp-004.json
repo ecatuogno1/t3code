@@ -1,0 +1,23 @@
+{
+  "id": "exp-004",
+  "project": "t3code",
+  "startedAt": "2026-03-19T09:43:09Z",
+  "phases": [
+    {
+      "name": "Olivia",
+      "tool": "gemini",
+      "status": "fail",
+      "output": "Gemini failed",
+      "elapsed": 5
+    },
+    {
+      "name": "Revert",
+      "tool": "git",
+      "status": "fail",
+      "output": "Changes reverted",
+      "elapsed": 0
+    }
+  ],
+  "result": "fail",
+  "finishedAt": "2026-03-19T09:43:14Z"
+}

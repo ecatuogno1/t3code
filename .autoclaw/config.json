@@ -1,0 +1,21 @@
+{
+  "name": "T3 Code",
+  "path": "/Users/emanuelcatuogno/Developer/t3code",
+  "description": "Minimal web GUI for coding agents \u2014 fork of pingdotgg/t3code",
+  "package_manager": "pnpm",
+  "test_cmd": "pnpm test",
+  "lint_cmd": "pnpm lint",
+  "focus": [
+    "Fix upstream bugs from GitHub issues",
+    "Claude Code provider \u2014 fix event streaming from adapter",
+    "UI improvements \u2014 sidebar resize, diff panel, keybindings",
+    "Test coverage for server and web packages"
+  ],
+  "gh_repo": "ecatuogno1/t3code",
+  "gh_upstream": "pingdotgg/t3code",
+  "team_profile": "reliability",
+  "speed_profile": "balanced",
+  "workflow_type": "standard",
+  "default_cycles": 5,
+  "max_parallel_cycles": 1
+}
